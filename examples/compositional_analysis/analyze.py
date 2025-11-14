@@ -42,4 +42,3 @@ if __name__ == "__main__":
             align_feat_idx=[0, 1],
         )
         print(f"Counterexample = {cex}")
-
