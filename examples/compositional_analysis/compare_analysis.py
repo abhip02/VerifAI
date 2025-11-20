@@ -6,71 +6,19 @@ from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEn
 from utils import generate_traces
 
 
-def _worker_generate_traces(save_dir, scenario, n, expert):
+def _worker_generate_traces(save_dir, scenario, n, expert, model_path):
     print(f"[PID={os.getpid()}] Starting scenario {scenario}")
     generate_traces(
         n=n,
         save_dir=save_dir,
         scenario=scenario,
-        model_path="storage/models/model_map_2.zip",
+        model_path=model_path,
         expert=expert
     )
     print(f"[PID={os.getpid()}] Finished scenario {scenario}")
 
 
-def generate_traces_parallel_soft_stop(n, save_dir, scenarios, time_budget, expert):
-    """
-    Generate traces in parallel using multiprocessing with SOFT STOP.
-    Stops launching new processes after time budget, but lets running processes finish.
-    """
-    # Clear old trace directories
-    for s in scenarios:
-        scenario_dir = os.path.join(save_dir, s)
-        if os.path.exists(scenario_dir):
-            shutil.rmtree(scenario_dir)
-    
-    print("=== Generating Traces (Parallel - SOFT STOP) ===")
-    
-    # Launch multiprocessing jobs within time budget
-    processes = []
-    start_time = time.time()
-    
-    for s in scenarios:
-        elapsed = time.time() - start_time
-        if elapsed >= time_budget:
-            print(f"Time budget exhausted before launching scenario {s}")
-            break
-        
-        print(f"Launching scenario {s} (elapsed: {elapsed:.2f}s)")
-        p = mp.Process(
-            target=_worker_generate_traces,
-            args=(save_dir, s, n, expert)
-        )
-        p.start()
-        processes.append((s, p))
-    
-    # Wait for all launched jobs to finish
-    for scenario_name, proc in processes:
-        print(f"Waiting for scenario {scenario_name}...")
-        proc.join()
-        print(f"Scenario {scenario_name} finished.")
-    
-    # Build logs dict ONLY for existing traces
-    logs = {}
-    for s, proc in processes:
-        csv_path = os.path.join(save_dir, s, "traces.csv")
-        if os.path.exists(csv_path):
-            logs[s] = csv_path
-        else:
-            print(f"[INFO] Scenario {s} produced no traces.")
-    
-    if not logs:
-        print("No traces generated.")
-    
-    return logs
-
-
-def generate_traces_parallel_hard_stop(n, save_dir, scenarios, time_budget, expert):
+def generate_traces_parallel(n, save_dir, scenarios, time_budget, expert, model_path):
     """
     Generate traces in parallel using multiprocessing with HARD STOP.
     Terminates all processes when time budget is reached, discarding only the current partial trace.
@@ -92,7 +40,7 @@ def generate_traces_parallel_hard_stop(n, save_dir, scenarios, time_budget, expe
         print(f"Launching scenario {s}")
         p = mp.Process(
             target=_worker_generate_traces,
-            args=(save_dir, s, n, expert)
+            args=(save_dir, s, n, expert, model_path)
         )
         p.start()
         processes.append((s, p))
@@ -240,26 +188,17 @@ def parse_scenario(input_scenario):
     return scenarios_set
 
 
-def testScenario(input_scenario, isCompositional, time_budget, n, save_dir, expert, hard_stop=True):
+def testScenario(input_scenario, isCompositional, time_budget, n, save_dir, expert, model_path):
     """
-    Test scenario with either soft or hard time budget enforcement.
-    
-    Args:
-        hard_stop: If True, uses hard stop (terminates processes at time budget).
-                   If False, uses soft stop (stops launching new processes but lets running ones finish).
+    Test scenario with hard time budget enforcement.
+    Terminates all processes when time budget is reached.
     """
-    # Select appropriate trace generation function
-    if hard_stop:
-        generate_traces_func = generate_traces_parallel_hard_stop
-    else:
-        generate_traces_func = generate_traces_parallel_soft_stop
-    
     # monolithic trace generation
     if not isCompositional:
         print("Running MONOLITHIC SMC")
         scenarios = [input_scenario]
         
-        logs = generate_traces_func(n=n, save_dir=save_dir, scenarios=scenarios, time_budget=time_budget, expert=expert)
+        logs = generate_traces_parallel(n=n, save_dir=save_dir, scenarios=scenarios, time_budget=time_budget, expert=expert, model_path=model_path)
         run_monolithic_smc(logs)
         
     # compositional trace generation
@@ -268,7 +207,7 @@ def testScenario(input_scenario, isCompositional, time_budget, n, save_dir, expe
         scenarios_set = parse_scenario(input_scenario)
         scenarios = list(scenarios_set)
         
-        logs = generate_traces_func(n=n, save_dir=save_dir, scenarios=scenarios, time_budget=time_budget, expert=expert)
+        logs = generate_traces_parallel(n=n, save_dir=save_dir, scenarios=scenarios, time_budget=time_budget, expert=expert, model_path=model_path)
         
         # checking individual rho's
         run_monolithic_smc(logs)
@@ -278,16 +217,27 @@ def testScenario(input_scenario, isCompositional, time_budget, n, save_dir, expe
 
 
 if __name__ == "__main__":
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Run SMC tests with compositional or monolithic approaches")
+    parser.add_argument("--scenario", type=str, default="SXC", help="Input scenario string (default: SXC)")
+    parser.add_argument("--compositional", action="store_true", help="Use compositional approach (default: False)")
+    parser.add_argument("--time-budget", type=int, default=25, help="Time budget in seconds (default: 25)")
+    parser.add_argument("--n", type=int, default=5000, help="Number of traces to generate (default: 5000)")
+    parser.add_argument("--expert", action="store_true", help="Use expert mode (default: False)")
+    parser.add_argument("--save-dir", type=str, default="storage/run1", help="Directory to save traces (default: storage/run1)")
+    parser.add_argument("--model-path", type=str, default="storage/models/model_map_2.zip", help="Path to model file (default: storage/models/model_map_2.zip)")
+    
+    args = parser.parse_args()
+    
     mp.set_start_method("spawn")
     
-    input_scenario = "SXC"
-    isCompositional = True
-    time_budget = 25
-    n = 5000
-    expert = True
-    save_dir = "storage/run1"
-    hard_stop = True  # Set to False for soft stop behavior
-    
-    testScenario(input_scenario=input_scenario, isCompositional=isCompositional, 
-                 time_budget=time_budget, n=n, save_dir=save_dir,
-                 expert=expert, hard_stop=hard_stop)
+    testScenario(
+        input_scenario=args.scenario,
+        isCompositional=args.compositional,
+        time_budget=args.time_budget,
+        n=args.n,
+        save_dir=args.save_dir,
+        expert=args.expert,
+        model_path=args.model_path
+    )
