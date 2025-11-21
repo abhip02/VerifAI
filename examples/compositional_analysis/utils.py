@@ -37,7 +37,7 @@ def generate_traces(
     env = make_env(scenario=scenario_id, monitor=False)
     
     if expert:
-        print("USING EXPERT POLICY")
+        # print("USING EXPERT POLICY")
         from metadrive.policy.expert_policy import ExpertPolicy
         # Expert policy will be created per episode after reset
         model = None

@@ -222,11 +222,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run SMC tests with compositional or monolithic approaches")
     parser.add_argument("--scenario", type=str, default="SXC", help="Input scenario string (default: SXC)")
     parser.add_argument("--compositional", action="store_true", help="Use compositional approach (default: False)")
-    parser.add_argument("--time-budget", type=int, default=25, help="Time budget in seconds (default: 25)")
+    parser.add_argument("--time_budget", type=int, default=25, help="Time budget in seconds (default: 25)")
     parser.add_argument("--n", type=int, default=5000, help="Number of traces to generate (default: 5000)")
     parser.add_argument("--expert", action="store_true", help="Use expert mode (default: False)")
-    parser.add_argument("--save-dir", type=str, default="storage/run1", help="Directory to save traces (default: storage/run1)")
-    parser.add_argument("--model-path", type=str, default="storage/models/model_map_2.zip", help="Path to model file (default: storage/models/model_map_2.zip)")
+    parser.add_argument("--save_dir", type=str, default="storage/run1", help="Directory to save traces (default: storage/run1)")
+    parser.add_argument("--model_path", type=str, default="storage/models/model_map_2.zip", help="Path to model file (default: storage/models/model_map_2.zip)")
     
     args = parser.parse_args()
     
