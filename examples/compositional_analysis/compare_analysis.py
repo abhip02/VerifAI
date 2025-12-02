@@ -1,15 +1,39 @@
 import os
 import time
 import shutil
+import math
 import multiprocessing as mp
 from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine
 from utils import generate_traces
 
 
+def compute_hoeffding_samples(confidence_level, error_bound):
+    """
+    Compute the number of samples needed using Hoeffding's inequality.
+    
+    Hoeffding's inequality: P(|rho_hat - rho| >= epsilon) <= 2 * exp(-2 * n * epsilon^2)
+    
+    Setting 2 * exp(-2 * n * epsilon^2) = 1 - confidence_level (delta)
+    Solving for n: n = ln(2/delta) / (2 * epsilon^2)
+    
+    Args:
+        confidence_level: Desired confidence level (e.g., 0.95 for 95%)
+        error_bound: Maximum error epsilon (e.g., 0.01 for 1%)
+    
+    Returns:
+        Number of samples needed
+    """
+    delta = 1 - confidence_level
+    n = math.log(2 / delta) / (2 * error_bound ** 2)
+    return int(math.ceil(n))
+
+
 def _worker_generate_traces(save_dir, scenario, n, expert, model_path):
     print(f"[PID={os.getpid()}] Starting scenario {scenario}")
+    # If n is None, generate traces indefinitely (until terminated by time budget)
+    traces_to_generate = float('inf') if n is None else n
     generate_traces(
-        n=n,
+        n=traces_to_generate,
         save_dir=save_dir,
         scenario=scenario,
         model_path=model_path,
@@ -50,8 +74,8 @@ def generate_traces_parallel(n, save_dir, scenarios, time_budget, expert, model_
     while True:
         elapsed = time.time() - start_time
         
-        # Check if time budget exceeded
-        if elapsed >= time_budget:
+        # Check if time budget exceeded (skip check if time_budget is inf)
+        if time_budget != float('inf') and elapsed >= time_budget:
             print(f"\n[HARD STOP] Time budget ({time_budget}s) reached at {elapsed:.2f}s")
             
             # Record trace counts RIGHT BEFORE termination
@@ -81,7 +105,7 @@ def generate_traces_parallel(n, save_dir, scenarios, time_budget, expert, model_
         # Check if all processes finished naturally
         all_done = all(not proc.is_alive() for _, proc in processes)
         if all_done:
-            print(f"All processes finished before time budget (elapsed: {elapsed:.2f}s)")
+            print(f"All processes finished naturally (elapsed: {elapsed:.2f}s)")
             break
         
         time.sleep(0.1)  # Check every 100ms
@@ -157,7 +181,7 @@ def run_SMC_compositional(scenarios, time_budget, logs):
     for s in scenarios:
         elapsed = time.time() - start_time
         remaining_time = time_budget - elapsed
-        if remaining_time <= 0:
+        if time_budget != float('inf') and remaining_time <= 0:
             print(f"Time budget exhausted before scenario {s}")
             break
 
@@ -188,11 +212,31 @@ def parse_scenario(input_scenario):
     return scenarios_set
 
 
-def testScenario(input_scenario, isCompositional, time_budget, n, save_dir, expert, model_path):
+def testScenario(input_scenario, isCompositional, time_budget, n, save_dir, expert, model_path, ground_truth=False, confidence_level=None, error_bound=None):
     """
     Test scenario with hard time budget enforcement.
     Terminates all processes when time budget is reached.
+    
+    Args:
+        ground_truth: If True, compute ground truth using Hoeffding's inequality
+        confidence_level: Confidence level for ground truth (e.g., 0.95)
+        error_bound: Error bound for ground truth (e.g., 0.01)
     """
+    # If ground truth mode, compute required samples using Hoeffding's inequality
+    if ground_truth:
+        if confidence_level is None or error_bound is None:
+            raise ValueError("Ground truth mode requires --confidence_level and --error_bound")
+        
+        n_required = compute_hoeffding_samples(confidence_level, error_bound)
+        print(f"\n=== Ground Truth Mode ===")
+        print(f"Confidence Level: {confidence_level * 100}%")
+        print(f"Error Bound: {error_bound}")
+        print(f"Required samples (Hoeffding): {n_required}")
+        
+        # Override n and remove time budget for ground truth
+        n = n_required
+        time_budget = float('inf')  # No time limit for ground truth
+    
     # monolithic trace generation
     if not isCompositional:
         print("Running MONOLITHIC SMC")
@@ -223,10 +267,15 @@ if __name__ == "__main__":
     parser.add_argument("--scenario", type=str, default="SXC", help="Input scenario string (default: SXC)")
     parser.add_argument("--compositional", action="store_true", help="Use compositional approach (default: False)")
     parser.add_argument("--time_budget", type=int, default=25, help="Time budget in seconds (default: 25)")
-    parser.add_argument("--n", type=int, default=5000, help="Number of traces to generate (default: 5000)")
+    parser.add_argument("--n", type=int, default=None, help="Number of traces to generate. If not specified, runs until time budget is hit (default: None)")
     parser.add_argument("--expert", action="store_true", help="Use expert mode (default: False)")
     parser.add_argument("--save_dir", type=str, default="storage/run1", help="Directory to save traces (default: storage/run1)")
     parser.add_argument("--model_path", type=str, default="storage/models/model_map_2.zip", help="Path to model file (default: storage/models/model_map_2.zip)")
+    
+    # Ground truth options
+    parser.add_argument("--ground_truth", action="store_true", help="Compute ground truth using Hoeffding's inequality (default: False)")
+    parser.add_argument("--confidence_level", type=float, default=0.99, help="Confidence level for ground truth (default: 0.99)")
+    parser.add_argument("--error_bound", type=float, default=0.001, help="Error bound (epsilon) for ground truth (default: 0.001)")
     
     args = parser.parse_args()
     
@@ -239,5 +288,8 @@ if __name__ == "__main__":
         n=args.n,
         save_dir=args.save_dir,
         expert=args.expert,
-        model_path=args.model_path
+        model_path=args.model_path,
+        ground_truth=args.ground_truth,
+        confidence_level=args.confidence_level,
+        error_bound=args.error_bound
     )
