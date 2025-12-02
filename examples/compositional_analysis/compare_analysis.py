@@ -30,8 +30,11 @@ def compute_hoeffding_samples(confidence_level, error_bound):
 
 def _worker_generate_traces(save_dir, scenario, n, expert, model_path):
     print(f"[PID={os.getpid()}] Starting scenario {scenario}")
-    # If n is None, generate traces indefinitely (until terminated by time budget)
-    traces_to_generate = float('inf') if n is None else n
+    # If n is None or inf, use a very large number that generate_traces can handle
+    if n is None or n == float('inf'):
+        traces_to_generate = 10**9  # 1 billion (effectively infinite for practical purposes)
+    else:
+        traces_to_generate = n
     generate_traces(
         n=traces_to_generate,
         save_dir=save_dir,
@@ -163,8 +166,8 @@ def run_monolithic_smc(logs):
     
     print("\n=== Monolithic SMC Results ===")
     for s in logs:
-        rho = scenario_base.get_success_rate(s)
-        unc = scenario_base.get_success_rate_uncertainty(s)
+        rho = scenario_base.get_success_prob(s)
+        unc = scenario_base.get_success_prob_uncertainty(s)
         print(f"{s}: rho = {rho:.4f} ± {unc:.4f}")
     
     return logs
@@ -188,7 +191,8 @@ def run_SMC_compositional(scenarios, time_budget, logs):
         rho, uncertainty = engine.check(
             s,
             features=["x", "y", "heading", "speed"],
-            norm_feat_idx=[0, 1],
+            # norm_feat_idx=[0, 1],
+            center_feat_idx=[0, 1],
         )
 
         print(f"Estimated {s}: rho = {rho:.4f} ± {uncertainty:.4f}")
@@ -196,7 +200,8 @@ def run_SMC_compositional(scenarios, time_budget, logs):
         cex = engine.falsify(
             s,
             features=["x", "y", "heading", "speed"],
-            norm_feat_idx=[0, 1],
+            # norm_feat_idx=[0, 1],
+            center_feat_idx=[0, 1],
             align_feat_idx=[0, 1],
         )
 

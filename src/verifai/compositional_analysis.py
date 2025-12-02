@@ -83,7 +83,8 @@ class CompositionalAnalysisEngine:
         scenario: List[str],
         features: Optional[List[str]] = None,
         center_feat_idx: Optional[List[int]] = None,
-        bw_method: str | int = 10,
+        # bw_method: str | int = 10, ## erroring on python3.9
+        bw_method: Union[str, int] = 10,
     ) -> Tuple[float, float]:
         """
         Computes importance-sampled success probability and propagated uncertainty.
@@ -165,7 +166,8 @@ class CompositionalAnalysisEngine:
         features: Optional[List[str]] = None,
         center_feat_idx: Optional[List[int]] = None,
         align_feat_idx: Optional[List[int]] = None,
-        bw_method: str | int = 10,
+        # bw_method: str | int = 10, ## erroring on python3.9
+        bw_method: Union[str, int] = 10,
     ) -> Tuple[Optional[pd.DataFrame], float]:
         """
         Generates a counterexample trace using the given traces.
