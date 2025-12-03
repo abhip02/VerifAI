@@ -1,29 +1,294 @@
-[![Documentation Status](https://readthedocs.org/projects/verifai/badge/?version=latest)](https://verifai.readthedocs.io/en/latest/?badge=latest)
-[![License](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
+# Compare Analysis Tool
 
+Statistical Model Checking (SMC) tool for comparing **compositional vs monolithic** approaches to estimating success rates of autonomous driving scenarios.
 
-# VerifAI
+## Features
 
-**VerifAI** is a software toolkit for the formal design and analysis of 
-systems that include artificial intelligence (AI) and machine learning (ML)
-components.
-VerifAI particularly seeks to address challenges with applying formal methods to perception and ML components, including those based on neural networks, and to model and analyze system behavior in the presence of environment uncertainty.
-The current version of the toolkit performs intelligent simulation guided by formal models and specifications, enabling a variety of use cases including temporal-logic falsification (bug-finding), model-based systematic fuzz testing, parameter synthesis, counterexample analysis, and data set augmentation. Further details may be found in our [CAV 2019 paper](https://people.eecs.berkeley.edu/~sseshia/pubs/b2hd-verifai-cav19.html).
+- **Parallel trace generation** with hard time budget enforcement
+- **Monolithic mode**: Test complete scenarios directly
+- **Compositional mode**: Decompose scenarios into primitives and combine results
+- **Ground truth computation**: Statistically rigorous estimates using Hoeffding's inequality
+- **Hard stop**: Ensures fair comparisons by enforcing strict time limits
 
-Please see the [documentation](https://verifai.readthedocs.io/) for installation instructions, tutorials, publications using VerifAI, and more.
+---
 
-VerifAI was designed and implemented by Tommaso Dreossi, Daniel J. Fremont, Shromona Ghosh, Edward Kim, Hadi Ravanbakhsh, Marcell Vazquez-Chanlatte, and Sanjit A. Seshia. 
+## Installation
 
-If you use VerifAI in your work, please cite our [CAV 2019 paper](https://people.eecs.berkeley.edu/~sseshia/pubs/b2hd-verifai-cav19.html) and this website.
+```bash
+# Clone the repository
+git clone <your-repo-url>
+cd compositional_analysis
 
-If you have any problems using VerifAI, please submit an issue to the GitHub repository or contact Daniel Fremont at [dfremont@ucsc.edu](mailto:dfremont@ucsc.edu) or Edward Kim at [ek65@berkeley.edu](mailto:ek65@berkeley.edu).
+# Install dependencies
+pip install -r requirements.txt
 
-### Repository Structure
+# Install VerifAI (if not already installed)
+pip install -e /path/to/VerifAI
+```
 
-* _docs_: sources for the [documentation](https://verifai.readthedocs.io/);
+---
 
-* _examples_: examples and additional documentation for particular simulators, including CARLA, Webots, X-Plane, and OpenAI Gym;
+## Quick Start
 
-* _src/verifai_: the source for the `verifai` package proper;
+```bash
+# Basic monolithic test
+python compare_analysis.py --scenario "SXC" --time_budget 30
 
-* _tests_: the VerifAI test suite.
+# Compositional analysis
+python compare_analysis.py --scenario "SXC" --compositional --time_budget 30
+
+# Ground truth computation
+python compare_analysis.py --scenario "SXC" --ground_truth --confidence_level 0.95 --error_bound 0.01
+```
+
+---
+
+## Usage
+
+```bash
+python compare_analysis.py [OPTIONS]
+```
+
+### Command-Line Arguments
+
+| Argument | Type | Default | Description |
+|----------|------|---------|-------------|
+| `--scenario` | str | `"SXC"` | Scenario string (e.g., "SXC", "SXSX", "ABC") |
+| `--compositional` | flag | `False` | Use compositional approach |
+| `--time_budget` | int | `25` | Time budget in seconds |
+| `--n` | int | `None` | Max number of traces (None = run until time budget) |
+| `--expert` | flag | `False` | Use expert driving policy |
+| `--save_dir` | str | `"storage/run1"` | Directory to save traces |
+| `--model_path` | str | `"storage/models/model_map_2.zip"` | Path to model file |
+| `--ground_truth` | flag | `False` | Compute ground truth using Hoeffding's inequality |
+| `--confidence_level` | float | `0.99` | Confidence level for ground truth (0-1) |
+| `--error_bound` | float | `0.001` | Error bound (ε) for ground truth |
+
+---
+
+## Modes of Operation
+
+### 1. Monolithic Mode
+
+Tests the complete scenario directly without decomposition.
+
+```bash
+python compare_analysis.py --scenario "SXC" --time_budget 30 --expert
+```
+
+**Behavior:**
+- Launches one worker process for the complete scenario
+- Generates traces until time budget is reached
+- Computes success rate ρ and uncertainty ε using all traces
+
+---
+
+### 2. Compositional Mode
+
+Decomposes the scenario into primitives, tests each separately, then combines results using importance sampling.
+
+```bash
+python compare_analysis.py --scenario "SXC" --compositional --time_budget 30 --expert
+```
+
+**Behavior:**
+- Parses "SXC" into primitives: {S, X, C}
+- Launches parallel worker processes (one per unique primitive)
+- Each worker generates traces until time budget is reached
+- Computes individual ρ values for each primitive
+- Uses `CompositionalAnalysisEngine` to combine results
+
+---
+
+### 3. Ground Truth Mode
+
+Computes statistically rigorous estimates using Hoeffding's inequality.
+
+```bash
+python compare_analysis.py --scenario "SXC" --ground_truth --confidence_level 0.95 --error_bound 0.01
+```
+
+**Behavior:**
+- Calculates required samples: `n = ln(2/δ) / (2ε²)` where δ = 1 - confidence_level
+- Generates exactly n traces (no time limit)
+- Guarantees: with probability ≥ confidence_level, estimated ρ is within ε of true value
+
+**Example calculations:**
+- 95% confidence, 1% error → ~18,445 samples
+- 99% confidence, 0.1% error → ~2,654,126 samples
+
+---
+
+## Examples
+
+### Example 1: Quick Monolithic Test
+
+```bash
+python compare_analysis.py --scenario "SXC" --expert --time_budget 20
+```
+
+Generates traces for 20 seconds and computes success rate.
+
+---
+
+### Example 2: Compositional Analysis
+
+```bash
+python compare_analysis.py --scenario "SXSX" --compositional --expert --time_budget 30
+```
+
+Decomposes "SXSX" into {S, X}, generates traces for each primitive in parallel for 30 seconds, then combines results.
+
+---
+
+### Example 3: Fixed Number of Traces
+
+```bash
+python compare_analysis.py --scenario "ABC" --n 5000 --time_budget 60 --expert
+```
+
+Generates exactly 5000 traces OR stops at 60 seconds, whichever comes first.
+
+---
+
+### Example 4: Run Until Time Budget
+
+```bash
+python compare_analysis.py --scenario "XYZ" --time_budget 45 --expert
+```
+
+Generates as many traces as possible within 45 seconds (no sample limit).
+
+---
+
+### Example 5: Ground Truth - High Confidence
+
+```bash
+python compare_analysis.py --scenario "SXC" --ground_truth --confidence_level 0.99 --error_bound 0.001
+```
+
+Generates ~2.65M traces to achieve 99% confidence with 0.1% error bound. No time limit.
+
+---
+
+### Example 6: Ground Truth - Faster
+
+```bash
+python compare_analysis.py --scenario "SXC" --ground_truth --confidence_level 0.95 --error_bound 0.01
+```
+
+Generates ~18K traces to achieve 95% confidence with 1% error bound.
+
+---
+
+### Example 7: Compositional Ground Truth
+
+```bash
+python compare_analysis.py --scenario "SXSX" --compositional --ground_truth --confidence_level 0.95 --error_bound 0.01
+```
+
+Computes ground truth for each primitive (S, X) then combines using compositional engine.
+
+---
+
+### Example 8: Custom Paths
+
+```bash
+python compare_analysis.py \
+  --scenario "CustomScenario" \
+  --save_dir "experiments/exp_001" \
+  --model_path "models/custom_model.zip" \
+  --time_budget 40 \
+  --expert
+```
+
+---
+
+## Time Budget vs Sample Budget
+
+| Configuration | Time Limit | Sample Limit | Behavior |
+|---------------|------------|--------------|----------|
+| `--time_budget 30` | 30s | None | Run until 30s, collect as many traces as possible |
+| `--n 5000 --time_budget 30` | 30s | 5000 | Stop at 5000 traces OR 30s (whichever first) |
+| `--ground_truth` | None (∞) | Computed | Run until required samples collected |
+
+---
+
+## Understanding Output
+
+### Trace Generation
+
+```
+=== Generating Traces (Parallel - HARD STOP) ===
+Launching scenario S
+[PID=12345] Starting scenario S
+[HARD STOP] Time budget (30s) reached at 30.02s
+Terminating scenario S (PID=12345)
+[INFO] Scenario S: Removing partial trace (had 9112, keeping 9059)
+[INFO] Scenario S has 9059 completed traces.
+```
+
+- **Hard stop**: Processes terminated when time budget reached
+- **Partial traces removed**: Incomplete trace being written at termination is discarded
+- **Gap (had vs keeping)**: Normal behavior showing traces written during termination
+
+---
+
+### Monolithic Results
+
+```
+=== Monolithic SMC Results ===
+SXC: rho = 0.8234 ± 0.0042
+```
+
+- **ρ (rho)**: Estimated success rate (82.34%)
+- **±ε (uncertainty)**: Hoeffding bound (±0.42%)
+- **95% confidence interval**: [0.8192, 0.8276]
+
+---
+
+### Compositional Results
+
+```
+=== Monolithic SMC Results ===
+S: rho = 0.9123 ± 0.0031
+X: rho = 0.8456 ± 0.0037
+
+=== Running Compositional SMC ===
+Estimated SXSX: rho = 0.7245 ± 0.0089
+```
+
+- First section: Individual primitive success rates
+- Second section: Combined estimate using importance sampling with Gaussian KDE
+- Uncertainty is propagated through composition
+
+---
+
+## How It Works
+
+### Hard Stop Time Budget
+
+1. All worker processes launch simultaneously
+2. Main process monitors elapsed time every 100ms
+3. When time budget is reached:
+   - Snapshot current trace counts
+   - Send `SIGTERM` to all workers (5s grace period)
+   - Force kill any remaining processes
+4. After termination:
+   - Read final trace counts
+   - Remove partial traces (traces written during termination)
+   - Keep only complete traces for analysis
+
+### Hoeffding's Inequality
+
+For ground truth mode, the required number of samples is:
+
+```
+n = ln(2/δ) / (2ε²)
+```
+
+Where:
+- `δ = 1 - confidence_level` (probability of error)
+- `ε = error_bound` (maximum error)
+
+This guarantees: `P(|ρ̂ - ρ| ≤ ε) ≥ confidence_level`
