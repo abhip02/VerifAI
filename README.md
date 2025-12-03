@@ -41,7 +41,7 @@ python compare_analysis.py [OPTIONS]
 | `--compositional` | flag | `False` | Use compositional approach |
 | `--time_budget` | int | `25` | Time budget in seconds |
 | `--n` | int | `None` | Max number of traces (None = run until time budget) |
-| `--expert` | flag | `False` | Use expert driving policy |
+| `--expert` | flag | `False` | Use Metadrive expert driving policy |
 | `--save_dir` | str | `"storage/run1"` | Directory to save traces |
 | `--model_path` | str | `"storage/models/model_map_2.zip"` | Path to model file |
 | `--ground_truth` | flag | `False` | Compute ground truth using Hoeffding's inequality |
