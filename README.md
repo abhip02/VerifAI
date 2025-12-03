@@ -12,22 +12,6 @@ Statistical Model Checking (SMC) tool for comparing **compositional vs monolithi
 
 ---
 
-## Installation
-
-```bash
-# Clone the repository
-git clone <your-repo-url>
-cd compositional_analysis
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Install VerifAI (if not already installed)
-pip install -e /path/to/VerifAI
-```
-
----
-
 ## Quick Start
 
 ```bash
