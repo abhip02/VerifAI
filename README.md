@@ -12,6 +12,22 @@ Statistical Model Checking (SMC) tool for comparing **compositional vs monolithi
 
 ---
 
+## Installation
+
+```bash
+# Clone the repository
+git clone <your-repo-url>
+cd compositional_analysis
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Install VerifAI (if not already installed)
+pip install -e /path/to/VerifAI
+```
+
+---
+
 ## Quick Start
 
 ```bash
@@ -41,7 +57,7 @@ python compare_analysis.py [OPTIONS]
 | `--compositional` | flag | `False` | Use compositional approach |
 | `--time_budget` | int | `25` | Time budget in seconds |
 | `--n` | int | `None` | Max number of traces (None = run until time budget) |
-| `--expert` | flag | `False` | Use Metadrive expert driving policy |
+| `--expert` | flag | `False` | Use expert driving policy |
 | `--save_dir` | str | `"storage/run1"` | Directory to save traces |
 | `--model_path` | str | `"storage/models/model_map_2.zip"` | Path to model file |
 | `--ground_truth` | flag | `False` | Compute ground truth using Hoeffding's inequality |
@@ -276,3 +292,14 @@ Where:
 - `ε = error_bound` (maximum error)
 
 This guarantees: `P(|ρ̂ - ρ| ≤ ε) ≥ confidence_level`
+
+---
+
+## Results
+
+### Compositional Analysis Results
+
+| Scenario | Mode | Expert | Time Budget (s) | Traces Generated | Success Rate (ρ) | Uncertainty (±ε) |
+|----------|------|--------|-----------------|------------------|------------------|------------------|
+| **SXC** | Compositional | ✓ | 2400 | S: 1,331,017<br>X: 1,297,710<br>C: 823,718 | **0.9115** | **0.0309** |
+| | Primitives | ✓ | | | S: 0.9991<br>X: 0.9497<br>C: 0.9603 | S: 0.0120<br>X: 0.0139<br>C: 0.0202 |
