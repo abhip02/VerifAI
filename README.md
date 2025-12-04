@@ -297,9 +297,15 @@ This guarantees: `P(|ρ̂ - ρ| ≤ ε) ≥ confidence_level`
 
 ## Results
 
-### Compositional Analysis Results
+### Compositional vs Monolithic Analysis
 
-| Scenario | Mode | Expert | Time Budget (s) | Traces Generated | Success Rate (ρ) | Uncertainty (±ε) |
-|----------|------|--------|-----------------|------------------|------------------|------------------|
-| **SXC** | Compositional | ✓ | 2400 | S: 1,331,017<br>X: 1,297,710<br>C: 823,718 | **0.9115** | **0.0309** |
-| | Primitives | ✓ | | | S: 0.9991<br>X: 0.9497<br>C: 0.9603 | S: 0.0120<br>X: 0.0139<br>C: 0.0202 |
+| Scenario | Mode | Expert | Time Budget (s) | Episodes | Success Rate (ρ) | Uncertainty (±ε) |
+|----------|------|--------|-----------------|----------|------------------|------------------|
+| **SXC** | Compositional | ✓ | 2400 | S: 3,151<br>X: 2,261<br>C: 1,087 | **0.9173** | **0.0657** |
+| | Primitives | ✓ | | | S: 0.9984<br>X: 0.9474<br>C: 0.9706 | S: 0.0242<br>X: 0.0286<br>C: 0.0412 |
+| **SXC** | Monolithic | ✓ | 2400 | 516 | **0.9070** | **0.0598** |
+| **SOCXSOCX** | Compositional | ✓ | 2400 | S: 3,177<br>O: 1,078<br>C: 1,102<br>X: 2,225 | **0.4872** | **0.0712** |
+| | Primitives | ✓ | | | S: 0.9984<br>O: 0.7523<br>C: 0.9682<br>X: 0.9528 | S: 0.0241<br>O: 0.0414<br>C: 0.0409<br>X: 0.0288 |
+| **SOCXSOCX** | Monolithic | ✓ | 2400 | 122 | **0.4836** | **0.1230** |
+
+**Note:** "Episodes" refers to the number of complete rollouts/trajectories (unique `trace_id` values), not the number of timesteps/rows in the CSV. Each episode contains multiple timesteps.
