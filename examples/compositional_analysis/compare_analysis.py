@@ -87,8 +87,16 @@ def generate_traces_parallel(n, save_dir, scenarios, time_budget, expert, model_
                 if os.path.exists(csv_path):
                     with open(csv_path, 'r') as f:
                         lines = f.readlines()
-                        # Count lines (subtract 1 for header if present)
-                        trace_counts_before_termination[s] = len(lines) - 1 if lines else 0
+                        if len(lines) <= 1:  # Only header or empty
+                            trace_counts_before_termination[s] = 0
+                        else:
+                            # Count unique trace_ids (episodes)
+                            trace_ids = set()
+                            for line in lines[1:]:  # Skip header
+                                parts = line.split(',')
+                                if parts:
+                                    trace_ids.add(parts[0])  # First column is trace_id
+                            trace_counts_before_termination[s] = len(trace_ids)
                 else:
                     trace_counts_before_termination[s] = 0
             
@@ -125,26 +133,56 @@ def generate_traces_parallel(n, save_dir, scenarios, time_budget, expert, model_
                 with open(csv_path, 'r') as f:
                     lines = f.readlines()
                 
-                current_count = len(lines) - 1 if lines else 0
+                if len(lines) <= 1:  # Only header or empty
+                    current_count = 0
+                else:
+                    # Count unique trace_ids in final file
+                    trace_ids = set()
+                    for line in lines[1:]:  # Skip header
+                        parts = line.split(',')
+                        if parts:
+                            trace_ids.add(parts[0])
+                    current_count = len(trace_ids)
+                
                 expected_count = trace_counts_before_termination[s]
                 
                 if current_count > expected_count:
                     # There's a partial trace - keep only the completed traces
-                    print(f"[INFO] Scenario {s}: Removing partial trace (had {current_count}, keeping {expected_count})")
+                    print(f"[INFO] Scenario {s}: Removing partial episode (had {current_count} episodes, keeping {expected_count})")
+                    
+                    # Keep only rows with trace_id < expected_count
                     with open(csv_path, 'w') as f:
-                        # Keep header + expected number of complete traces
-                        f.writelines(lines[:expected_count + 1])
+                        f.write(lines[0])  # Write header
+                        for line in lines[1:]:
+                            parts = line.split(',')
+                            if parts:
+                                trace_id = int(parts[0])
+                                if trace_id < expected_count:
+                                    f.write(line)
                 
                 # Only add to logs if there are any complete traces
                 if expected_count > 0:
                     logs[s] = csv_path
-                    print(f"[INFO] Scenario {s} has {expected_count} completed traces.")
+                    print(f"[INFO] Scenario {s} has {expected_count} completed episodes.")
                 else:
-                    print(f"[INFO] Scenario {s} had no completed traces.")
+                    print(f"[INFO] Scenario {s} had no completed episodes.")
             else:
                 # Process completed successfully
+                # Count episodes in completed file
+                with open(csv_path, 'r') as f:
+                    lines = f.readlines()
+                if len(lines) > 1:
+                    trace_ids = set()
+                    for line in lines[1:]:
+                        parts = line.split(',')
+                        if parts:
+                            trace_ids.add(parts[0])
+                    episode_count = len(trace_ids)
+                else:
+                    episode_count = 0
+                
                 logs[s] = csv_path
-                print(f"[INFO] Scenario {s} completed successfully with traces.")
+                print(f"[INFO] Scenario {s} completed successfully with {episode_count} episodes.")
         else:
             print(f"[INFO] Scenario {s} produced no traces.")
     
@@ -191,7 +229,6 @@ def run_SMC_compositional(scenarios, time_budget, logs):
         rho, uncertainty = engine.check(
             s,
             features=["x", "y", "heading", "speed"],
-            # norm_feat_idx=[0, 1],
             center_feat_idx=[0, 1],
         )
 
@@ -200,7 +237,6 @@ def run_SMC_compositional(scenarios, time_budget, logs):
         cex = engine.falsify(
             s,
             features=["x", "y", "heading", "speed"],
-            # norm_feat_idx=[0, 1],
             center_feat_idx=[0, 1],
             align_feat_idx=[0, 1],
         )
@@ -217,7 +253,7 @@ def parse_scenario(input_scenario):
     return scenarios_set
 
 
-def testScenario(input_scenario, isCompositional, time_budget, n, save_dir, expert, model_path, ground_truth=False, confidence_level=None, error_bound=None):
+def testScenario(input_scenario, isCompositional, time_budget, n, save_dir, expert, model_path, ground_truth=False, confidence_level=None, error_bound=None, reuse_traces=False):
     """
     Test scenario with hard time budget enforcement.
     Terminates all processes when time budget is reached.
@@ -226,6 +262,7 @@ def testScenario(input_scenario, isCompositional, time_budget, n, save_dir, expe
         ground_truth: If True, compute ground truth using Hoeffding's inequality
         confidence_level: Confidence level for ground truth (e.g., 0.95)
         error_bound: Error bound for ground truth (e.g., 0.01)
+        reuse_traces: If True, use existing traces from save_dir without generating new ones
     """
     # If ground truth mode, compute required samples using Hoeffding's inequality
     if ground_truth:
@@ -247,7 +284,19 @@ def testScenario(input_scenario, isCompositional, time_budget, n, save_dir, expe
         print("Running MONOLITHIC SMC")
         scenarios = [input_scenario]
         
-        logs = generate_traces_parallel(n=n, save_dir=save_dir, scenarios=scenarios, time_budget=time_budget, expert=expert, model_path=model_path)
+        if not reuse_traces:
+            logs = generate_traces_parallel(n=n, save_dir=save_dir, scenarios=scenarios, time_budget=time_budget, expert=expert, model_path=model_path)
+        else:
+            # Build logs from existing traces
+            logs = {}
+            for s in scenarios:
+                csv_path = os.path.join(save_dir, s, "traces.csv")
+                if os.path.exists(csv_path):
+                    logs[s] = csv_path
+                    print(f"[INFO] Using existing traces for scenario {s}")
+                else:
+                    print(f"[ERROR] No existing traces found for scenario {s} at {csv_path}")
+        
         run_monolithic_smc(logs)
         
     # compositional trace generation
@@ -256,13 +305,38 @@ def testScenario(input_scenario, isCompositional, time_budget, n, save_dir, expe
         scenarios_set = parse_scenario(input_scenario)
         scenarios = list(scenarios_set)
         
-        logs = generate_traces_parallel(n=n, save_dir=save_dir, scenarios=scenarios, time_budget=time_budget, expert=expert, model_path=model_path)
+        if not reuse_traces:
+            logs = generate_traces_parallel(n=n, save_dir=save_dir, scenarios=scenarios, time_budget=time_budget, expert=expert, model_path=model_path)
+        else:
+            # Build logs from existing traces
+            logs = {}
+            for s in scenarios:
+                csv_path = os.path.join(save_dir, s, "traces.csv")
+                if os.path.exists(csv_path):
+                    logs[s] = csv_path
+                    print(f"[INFO] Using existing traces for scenario {s}")
+                else:
+                    print(f"[ERROR] No existing traces found for scenario {s} at {csv_path}")
         
         # checking individual rho's
         run_monolithic_smc(logs)
         
         # compositional rho
         run_SMC_compositional(scenarios=[input_scenario], time_budget=time_budget, logs=logs)
+    
+    # Print summary for easy copy-paste to README
+    print("\n" + "="*60)
+    print("SUMMARY")
+    print("="*60)
+    print(f"Command: python compare_analysis.py --scenario \"{input_scenario}\" "
+          f"{'--compositional ' if isCompositional else ''}"
+          f"{'--expert ' if expert else ''}"
+          f"{'--reuse_traces ' if reuse_traces else ''}"
+          f"--time_budget {time_budget if time_budget != float('inf') else 'N/A'} "
+          f"--save_dir \"{save_dir}\"")
+    if ground_truth:
+        print(f"Ground Truth: confidence_level={confidence_level}, error_bound={error_bound}")
+    print("="*60)
 
 
 if __name__ == "__main__":
@@ -274,13 +348,16 @@ if __name__ == "__main__":
     parser.add_argument("--time_budget", type=int, default=25, help="Time budget in seconds (default: 25)")
     parser.add_argument("--n", type=int, default=None, help="Number of traces to generate. If not specified, runs until time budget is hit (default: None)")
     parser.add_argument("--expert", action="store_true", help="Use expert mode (default: False)")
-    parser.add_argument("--save_dir", type=str, default="storage/run1", help="Directory to save traces (default: storage/run1)")
+    parser.add_argument("--save_dir", type=str, default="storage/new_traces", help="Directory to save traces (default: storage/run1)")
     parser.add_argument("--model_path", type=str, default="storage/models/model_map_2.zip", help="Path to model file (default: storage/models/model_map_2.zip)")
     
     # Ground truth options
     parser.add_argument("--ground_truth", action="store_true", help="Compute ground truth using Hoeffding's inequality (default: False)")
     parser.add_argument("--confidence_level", type=float, default=0.99, help="Confidence level for ground truth (default: 0.99)")
     parser.add_argument("--error_bound", type=float, default=0.001, help="Error bound (epsilon) for ground truth (default: 0.001)")
+    
+    # Reuse traces option
+    parser.add_argument("--reuse_traces", action="store_true", help="Use existing traces from save_dir without generating new ones (default: False)")
     
     args = parser.parse_args()
     
@@ -296,5 +373,6 @@ if __name__ == "__main__":
         model_path=args.model_path,
         ground_truth=args.ground_truth,
         confidence_level=args.confidence_level,
-        error_bound=args.error_bound
+        error_bound=args.error_bound,
+        reuse_traces=args.reuse_traces
     )
