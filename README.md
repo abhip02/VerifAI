@@ -39,6 +39,9 @@ python compare_analysis.py --scenario "SXC" --compositional --time_budget 30
 
 # Ground truth computation
 python compare_analysis.py --scenario "SXC" --ground_truth --confidence_level 0.95 --error_bound 0.01
+
+# Reuse existing traces (no new generation)
+python compare_analysis.py --scenario "SXC" --save_dir "storage/existing_run" --reuse_traces
 ```
 
 ---
