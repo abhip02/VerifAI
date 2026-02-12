@@ -164,4 +164,3 @@ if __name__ == "__main__":
     env.close()
 
     print(f"\n\nEmpirical success probability of generated traces: {success_count/args.n}")
-

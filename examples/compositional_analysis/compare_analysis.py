@@ -211,12 +211,12 @@ def run_monolithic_smc(logs):
     return logs
 
 
-def run_SMC_compositional(scenarios, time_budget, logs):
+def run_SMC_compositional(scenarios, time_budget, logs, delta=0.05):
     print("\n=== Running Compositional SMC ===")
     start_time = time.time()
     results = {}
 
-    scenario_base = ScenarioBase(logs)
+    scenario_base = ScenarioBase(logs, delta=delta)
     engine = CompositionalAnalysisEngine(scenario_base)
 
     for s in scenarios:
@@ -253,7 +253,7 @@ def parse_scenario(input_scenario):
     return scenarios_set
 
 
-def testScenario(input_scenario, isCompositional, time_budget, n, save_dir, expert, model_path, ground_truth=False, confidence_level=None, error_bound=None, reuse_traces=False):
+def testScenario(input_scenario, isCompositional, time_budget, n, save_dir, expert, model_path, ground_truth=False, confidence_level=None, error_bound=None, reuse_traces=False, delta=0.05):
     """
     Test scenario with hard time budget enforcement.
     Terminates all processes when time budget is reached.
@@ -263,6 +263,7 @@ def testScenario(input_scenario, isCompositional, time_budget, n, save_dir, expe
         confidence_level: Confidence level for ground truth (e.g., 0.95)
         error_bound: Error bound for ground truth (e.g., 0.01)
         reuse_traces: If True, use existing traces from save_dir without generating new ones
+        delta: Confidence level for Hoeffding bound in compositional analysis (default 0.05 → 95% CI)
     """
     # If ground truth mode, compute required samples using Hoeffding's inequality
     if ground_truth:
@@ -322,7 +323,7 @@ def testScenario(input_scenario, isCompositional, time_budget, n, save_dir, expe
         run_monolithic_smc(logs)
         
         # compositional rho
-        run_SMC_compositional(scenarios=[input_scenario], time_budget=time_budget, logs=logs)
+        run_SMC_compositional(scenarios=[input_scenario], time_budget=time_budget, logs=logs, delta=delta)
     
     # Print summary for easy copy-paste to README
     print("\n" + "="*60)
@@ -336,6 +337,8 @@ def testScenario(input_scenario, isCompositional, time_budget, n, save_dir, expe
           f"--save_dir \"{save_dir}\"")
     if ground_truth:
         print(f"Ground Truth: confidence_level={confidence_level}, error_bound={error_bound}")
+    if isCompositional and delta != 0.05:
+        print(f"Delta: {delta}")
     print("="*60)
 
 
@@ -348,7 +351,7 @@ if __name__ == "__main__":
     parser.add_argument("--time_budget", type=int, default=25, help="Time budget in seconds (default: 25)")
     parser.add_argument("--n", type=int, default=None, help="Number of traces to generate. If not specified, runs until time budget is hit (default: None)")
     parser.add_argument("--expert", action="store_true", help="Use expert mode (default: False)")
-    parser.add_argument("--save_dir", type=str, default="storage/new_traces", help="Directory to save traces (default: storage/run1)")
+    parser.add_argument("--save_dir", type=str, default="storage/new_traces", help="Directory to save traces (default: storage/new_traces)")
     parser.add_argument("--model_path", type=str, default="storage/models/model_map_2.zip", help="Path to model file (default: storage/models/model_map_2.zip)")
     
     # Ground truth options
@@ -358,6 +361,9 @@ if __name__ == "__main__":
     
     # Reuse traces option
     parser.add_argument("--reuse_traces", action="store_true", help="Use existing traces from save_dir without generating new ones (default: False)")
+    
+    # Compositional analysis option
+    parser.add_argument("--delta", type=float, default=0.05, help="Confidence level (delta) for Hoeffding bound in compositional analysis (default: 0.05 → 95%% CI)")
     
     args = parser.parse_args()
     
@@ -374,5 +380,6 @@ if __name__ == "__main__":
         ground_truth=args.ground_truth,
         confidence_level=args.confidence_level,
         error_bound=args.error_bound,
-        reuse_traces=args.reuse_traces
+        reuse_traces=args.reuse_traces,
+        delta=args.delta
     )
