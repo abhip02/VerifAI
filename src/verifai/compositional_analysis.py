@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import gaussian_kde
 
+# TODO: NON-MARKOVIAN
+from verifai.monitor import automaton_specification
 
 @dataclass
 class ScenarioStats:
@@ -159,6 +161,178 @@ class CompositionalAnalysisEngine:
         uncertainty = rho * np.sqrt(np.sum([eps_rho_ratios**2 for eps_rho_ratios in eps_rho_ratios]))
 
         return rho, uncertainty
+
+
+    # TODO: NON-MARKOVIAN check function that operates on automaton_specificiations, uses dfa's
+    def check_with_dfa(
+        self,
+        scenario: List[str],
+        spec: automaton_specification,
+        features: Optional[List[str]] = None,
+        center_feat_idx: Optional[List[int]] = None,
+        bw_method: Union[str, int] = 10,
+    ) -> Tuple[float, float]:
+        """
+        Identical structure to check(), with two substitutions:
+
+        1. s_last filter  (was: label == True)
+           → keep traces whose DFA final state is accepting, under q_init_dist
+
+        2. labels_t_last  (was: t_last["label"])
+           → per-trace DFA acceptance float, evaluated under q_init_dist
+
+        q_init_dist is a {state -> weight} distribution over DFA states.
+        It starts uniform over all reachable states and is updated after
+        each scenario to the empirical q_final distribution from that
+        scenario's traces, so each subsequent scenario is evaluated from
+        wherever the automaton actually left off.
+        """
+        if len(scenario) == 0:
+            raise ValueError("Scenario list must contain at least one scenario.")
+
+        n = len(scenario)
+        delta = self.scenario_base.delta
+        per_step_delta = delta / n
+
+        # Uniform initial distribution over all reachable DFA states
+        Q = self._reachable_states(spec)
+        q_init_dist: Dict[object, float] = {q: 1.0 / len(Q) for q in Q}
+
+        # --- first scenario ---
+        df_first = self.scenario_base.data[scenario[0]]
+        labels_first, q_init_dist = self._dfa_labels(df_first, spec, q_init_dist)
+
+        rho = float(np.mean(labels_first)) if len(labels_first) > 0 else 0.0
+        if rho == 0.0:
+            return 0.0, 0.0
+        N_first = len(labels_first)
+        eps_first = np.sqrt(np.log(2 / per_step_delta) / (2 * N_first))
+        eps_rho_ratios = [eps_first / rho]
+
+        if n == 1:
+            return rho, rho * eps_rho_ratios[0]
+
+        # --- compositional steps ---
+        for i in range(n - 1):
+            s_name, t_name = scenario[i], scenario[i + 1]
+            df_s, df_t = self.scenario_base.data[s_name], self.scenario_base.data[t_name]
+
+            # Run DFA on s traces to find which are accepting (replaces label == True)
+            s_labels, _ = self._dfa_labels(df_s, spec, q_init_dist)
+            s_last_all = df_s.sort_values("step").groupby("trace_id").tail(1).copy()
+            s_last_all["trace_id"] = s_last_all["trace_id"].astype(str)
+            s_tids = (df_s.sort_values("step")
+                      .groupby("trace_id").tail(1)["trace_id"].astype(str).tolist())
+            accepting_tids = {tid for tid, acc in zip(s_tids, s_labels) if acc > 0.0}
+            s_last = s_last_all[s_last_all["trace_id"].isin(accepting_tids)]
+
+            t_first = df_t.sort_values("step").groupby("trace_id").head(1)
+
+            # Run DFA on t traces to get labels_t_last (replaces t_last["label"])
+            labels_t_last, q_init_dist = self._dfa_labels(df_t, spec, q_init_dist)
+
+            # KDE and IS weights — identical to check()
+            if features:
+                s_last_features = s_last[features].to_numpy()
+                t_first_features = t_first[features].to_numpy()
+                if s_last_features.shape[0] < 2 or t_first_features.shape[0] < 2:
+                    return 0.0, 0.0
+                if center_feat_idx:
+                    for j in center_feat_idx:
+                        s_last_features[:, j] -= np.mean(s_last_features[:, j])
+                        t_first_features[:, j] -= np.mean(t_first_features[:, j])
+            else:
+                raise ValueError("Feature list must be provided for KDE.")
+
+            s_last_features, t_first_features = s_last_features.T, t_first_features.T
+
+            kde_s_last = gaussian_kde(s_last_features, bw_method=bw_method)
+            kde_t_first = gaussian_kde(t_first_features, bw_method=bw_method)
+
+            p_vals = kde_s_last(t_first_features)
+            q_vals = kde_t_first(t_first_features)
+            weights = np.nan_to_num(p_vals / q_vals, nan=0.0, posinf=0.0, neginf=0.0)
+
+            rho_step = np.sum(weights * labels_t_last) / np.sum(weights)
+            rho *= rho_step
+
+            N_eff = np.sum(weights) ** 2 / np.sum(weights ** 2)
+            epsilon_i = np.sqrt(np.log(2 / per_step_delta) / (2 * N_eff))
+            eps_rho_ratios.append(epsilon_i / rho_step)
+
+        uncertainty = rho * np.sqrt(np.sum([e ** 2 for e in eps_rho_ratios]))
+        return rho, uncertainty
+
+    # TODO: NON-MARKOVIAN helpers
+    @staticmethod
+    def _reachable_states(spec: automaton_specification) -> List:
+        """BFS from spec._dfa.start over all inputs to find reachable states."""
+        visited, queue = set(), [spec._dfa.start]
+        while queue:
+            s = queue.pop()
+            if s in visited:
+                continue
+            visited.add(s)
+            for sym in spec._dfa.inputs:
+                ns = spec._dfa._transition(s, sym)
+                if ns not in visited:
+                    queue.append(ns)
+        return list(visited)
+
+    @staticmethod
+    def _dfa_labels(
+        df: pd.DataFrame,
+        spec: automaton_specification,
+        q_init_dist: Dict[object, float],
+    ) -> Tuple[np.ndarray, Dict[object, float]]:
+        """
+        For each trace in df, compute acceptance probability by marginalising
+        over q_init_dist:
+
+            label(τ) = Σ_q  q_init_dist[q] * spec._dfa._label(advance(τ, q))
+
+        Uses spec.advance_on_trace internally (with a per-q start override via
+        spec._dfa.advance), consistent with how automaton_specification works.
+
+        Also returns the updated q_init_dist for the next scenario: the
+        empirical distribution of q_final values observed across all traces.
+
+        Returns
+        -------
+        labels       : float array, one value per trace
+        q_final_dist : {q -> weight} for the next scenario
+        """
+        grouped = {
+            str(tid): group.sort_values("step").to_dict("records")
+            for tid, group in df.groupby("trace_id")
+        }
+        trace_ids = list(grouped.keys())
+
+        labels = np.zeros(len(trace_ids))
+        q_final_counts: Dict[object, float] = {}
+
+        for q_init, w in q_init_dist.items():
+            if w == 0:
+                continue
+            for idx, tid in enumerate(trace_ids):
+                traj = grouped[tid]
+                word = [spec.L(row) for row in traj]
+                # advance from q_init (same mechanism as advance_on_trace,
+                # but starting from q_init rather than spec._dfa.start)
+                q_final = spec._dfa.advance(word, start=q_init).start
+                labels[idx] += w * (1.0 if spec._dfa._label(q_final) else 0.0)
+                q_final_counts[q_final] = q_final_counts.get(q_final, 0.0) + w
+
+        total = sum(q_final_counts.values())
+        q_final_dist = (
+            {q: c / total for q, c in q_final_counts.items()}
+            if total > 0
+            else {spec._dfa.start: 1.0}
+        )
+
+        return labels, q_final_dist
+
+
 
     def falsify(
         self,
