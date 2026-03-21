@@ -33,7 +33,7 @@ class multi_objective_monitor(specification_monitor):
             self.graph.add_nodes_from(range(self.num_objectives))
         else:
             self.graph = priority_graph
-        if linearize: # "linearize" the prioritize graph by topologically sorting and connecting nodes
+        if linearize:
             self._linearize()
     
     def _linearize(self):
@@ -55,7 +55,6 @@ class multi_objective_monitor(specification_monitor):
             new_graph.add_edge(nodes[i - 1], nodes[i])
         self.graph = new_graph
 
-## new class for Non-Markovian states
 
 class automaton_specification(specification_monitor):
     """
@@ -65,8 +64,7 @@ class automaton_specification(specification_monitor):
       - `labeling_function` maps a raw MDP state (e.g. metadrive obs dict) → automaton input symbol
       - We feed the labeled trace into a `DFA` object and check acceptance
       - `advance_on_trace` applies the labeling function to every step in the
-        trace and returns the advanced DFA (i.e. the DFA whose start state is
-        wherever the trace left us)
+        trace and returns the final DFA state after consuming the trace
 
     DFA is constructed with:
         start     : initial automaton state (any hashable)
@@ -83,14 +81,6 @@ class automaton_specification(specification_monitor):
         label: Callable,
         labeling_function: Callable,
     ):
-        """
-        Args:
-            start              : Initial DFA state (any hashable).
-            inputs             : Set of alphabet symbols the DFA accepts.
-            transition         : (state, symbol) → next_state
-            label              : state → bool
-            labeling_function  : mdp_state → alphabet symbol  (L: S_MDP → Σ)
-        """
         self._dfa = DFA(
             start=start,
             inputs=inputs,
@@ -100,25 +90,25 @@ class automaton_specification(specification_monitor):
         self.L = labeling_function
         super().__init__(self._evaluate)
 
-    ## external methods
-    
-    def advance_on_trace(self, traj) -> DFA:
+    def advance_on_trace(self, traj, start) -> object:
         """
         Apply the labeling function to each MDP state in `traj`, then
-        advance the DFA along the resulting symbol sequence.
+        advance the DFA from `start` along the resulting symbol sequence.
 
-        Returns the advanced DFA (start state = state after consuming traj).
-        This is the main building block for incremental / online monitoring.
+        Args:
+            traj  : sequence of MDP states (e.g. list of row dicts)
+            start : DFA state to begin from (e.g. q0 for the first scenario,
+                    or the output state of the previous scenario)
+
+        Returns:
+            The DFA state reached after consuming traj.
         """
         word = [self.L(mdp_state) for mdp_state in traj]
-        return self._dfa.advance(word)
+        return self._dfa.advance(word, start=start).start
 
     def evaluate(self, traj) -> float:
         return self._evaluate(traj)
 
-
-    ## internal methods
-    
     def _evaluate(self, traj) -> float:
         """
         Evaluate a full trajectory.
