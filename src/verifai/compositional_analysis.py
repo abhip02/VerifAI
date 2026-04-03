@@ -139,7 +139,7 @@ class CompositionalAnalysisEngine:
 
         return rho, uncertainty
 
-    ## New "check" function that works on "automaton_specification" specs
+    ## Fixed "check" function that works on "automaton_specification" specs
     def check_with_dfa(
         self,
         scenario: List[str],
@@ -152,16 +152,17 @@ class CompositionalAnalysisEngine:
         Identical structure to check(), with two substitutions:
 
         1. s_last filter  (was: label == True)
-           → keep traces whose DFA final state is accepting, under q_init_dist
+           → keep traces whose DFA final state is accepting
 
         2. labels_t_last  (was: t_last["label"])
-           → per-trace DFA acceptance float, evaluated under q_init_dist
+           → per-trace DFA acceptance float
 
-        q_init_dist is a {state -> weight} distribution over DFA states.
-        It starts at q0 with full probability and is updated after each
-        scenario to the empirical q_final distribution from that scenario's
-        traces, so each subsequent scenario is evaluated from wherever the
-        automaton actually left off.
+        q_init_dists[i] is the DFA state distribution at the *start* of
+        scenario i, **conditioned on acceptance through all prior scenarios**.
+        This avoids double-counting rejection probability: rho already
+        captures P(scenario i passes) multiplicatively, so the init dist
+        for the next scenario must only reflect where accepting traces
+        left the automaton.
         """
         if len(scenario) == 0:
             raise ValueError("Scenario list must contain at least one scenario.")
@@ -170,12 +171,19 @@ class CompositionalAnalysisEngine:
         delta = self.scenario_base.delta
         per_step_delta = delta / n
 
-        # All traces start the DFA at q0
-        q_init_dist: Dict[object, float] = {spec._dfa.start: 1.0}
+        # --- Forward pass: compute q_init_dists conditioned on acceptance ---
+        # q_init_dists[i] is the DFA state distribution at the start of
+        # scenario i, conditioned on all prior scenarios accepting.
+        q_init_dists = []
+        q_dist: Dict[object, float] = {spec._dfa.start: 1.0}
+        for s_name in scenario:
+            q_init_dists.append(q_dist)
+            df_s = self.scenario_base.data[s_name]
+            _, q_dist = self._dfa_labels(df_s, spec, q_dist)
 
         # --- first scenario ---
         df_first = self.scenario_base.data[scenario[0]]
-        labels_first, q_init_dist = self._dfa_labels(df_first, spec, q_init_dist)
+        labels_first, _ = self._dfa_labels(df_first, spec, q_init_dists[0])
 
         rho = float(np.mean(labels_first)) if len(labels_first) > 0 else 0.0
         if rho == 0.0:
@@ -192,8 +200,9 @@ class CompositionalAnalysisEngine:
             s_name, t_name = scenario[i], scenario[i + 1]
             df_s, df_t = self.scenario_base.data[s_name], self.scenario_base.data[t_name]
 
-            # Run DFA on s traces to find which are accepting (replaces label == True)
-            s_labels, _ = self._dfa_labels(df_s, spec, q_init_dist)
+            # Run DFA on s traces to find which are accepting (replaces label == True).
+            # Use q_init_dists[i]: the distribution at the START of scenario i.
+            s_labels, _ = self._dfa_labels(df_s, spec, q_init_dists[i])
             s_last_all = df_s.sort_values("step").groupby("trace_id").tail(1).copy()
             s_last_all["trace_id"] = s_last_all["trace_id"].astype(str)
             s_tids = (df_s.sort_values("step")
@@ -203,8 +212,11 @@ class CompositionalAnalysisEngine:
 
             t_first = df_t.sort_values("step").groupby("trace_id").head(1)
 
-            # Run DFA on t traces to get labels_t_last (replaces t_last["label"])
-            labels_t_last, q_init_dist = self._dfa_labels(df_t, spec, q_init_dist)
+            # Run DFA on t traces using q_init_dists[i+1]: the distribution
+            # conditioned on acceptance through scenario i.  Since rho already
+            # captures the probability of prior acceptance multiplicatively,
+            # these labels are NOT double-discounted.
+            labels_t_last, _ = self._dfa_labels(df_t, spec, q_init_dists[i + 1])
 
             # KDE and IS weights — identical to check()
             if features:
@@ -250,13 +262,16 @@ class CompositionalAnalysisEngine:
 
             label(τ) = Σ_q  q_init_dist[q] * is_accepting(advance_on_trace(τ, q))
 
-        Also returns the updated q_init_dist for the next scenario: the
-        empirical distribution of q_final values observed across all traces.
+        Also returns the updated q_init_dist for the next scenario:
+        the distribution of q_final values from **accepting evaluations
+        only** (conditioned on acceptance).  This ensures that the
+        multiplicative rho product in check_with_dfa does not double-count
+        rejection probability.
 
         Returns
         -------
         labels       : float array, one value per trace
-        q_final_dist : {q -> weight} for the next scenario
+        q_final_dist : {q -> weight} conditioned on acceptance
         """
         grouped = {
             str(tid): group.sort_values("step").to_dict("records")
@@ -265,7 +280,7 @@ class CompositionalAnalysisEngine:
         trace_ids = list(grouped.keys())
 
         labels = np.zeros(len(trace_ids))
-        q_final_counts: Dict[object, float] = {}
+        q_final_accepting: Dict[object, float] = {}
 
         for q_init, w in q_init_dist.items():
             if w == 0:
@@ -273,17 +288,26 @@ class CompositionalAnalysisEngine:
             for idx, tid in enumerate(trace_ids):
                 traj = grouped[tid]
                 q_final = spec.advance_on_trace(traj, start=q_init)
-                labels[idx] += w * (1.0 if spec._dfa._label(q_final) else 0.0)
-                q_final_counts[q_final] = q_final_counts.get(q_final, 0.0) + w
+                is_acc = spec._dfa._label(q_final)
+                labels[idx] += w * (1.0 if is_acc else 0.0)
 
-        total = sum(q_final_counts.values())
-        q_final_dist = (
-            {q: c / total for q, c in q_final_counts.items()}
-            if total > 0
-            else {spec._dfa.start: 1.0}
-        )
+                # Only accumulate final states from accepting evaluations.
+                # This conditions q_final_dist on acceptance, so downstream
+                # scenarios don't re-discount the rejection probability.
+                if is_acc:
+                    q_final_accepting[q_final] = (
+                        q_final_accepting.get(q_final, 0.0) + w
+                    )
+
+        total_acc = sum(q_final_accepting.values())
+        if total_acc > 0:
+            q_final_dist = {q: c / total_acc
+                            for q, c in q_final_accepting.items()}
+        else:
+            q_final_dist = {spec._dfa.start: 1.0}
 
         return labels, q_final_dist
+
 
     def falsify(
         self,

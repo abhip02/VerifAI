@@ -1,3 +1,6 @@
+# .csv trace storage
+*.csv
+
 # Scenic cache files
 *.snet
 

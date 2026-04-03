@@ -1,13 +1,13 @@
 """
-examples/compositional_analysis/dfa_test.py
+examples/compositional_analysis/dfa_tests/test_automaton_specification_metadrive_trace.py
 
 Unit tests for automaton_specification using a real MetaDrive trace.
-Trace is loaded from dfa_test_example_trace.csv in the same directory.
+Trace is loaded from example_trace.csv in the same directory.
 
 Run from the repo root:
-    python examples/compositional_analysis/dfa_test.py
+    python examples/compositional_analysis/dfa_tests/test_automaton_specification_metadrive_trace.py
 or with pytest:
-    pytest examples/compositional_analysis/dfa_test.py -v
+    pytest examples/compositional_analysis/dfa_tests/test_automaton_specification_metadrive_trace.py -v
 """
 
 import sys
@@ -17,10 +17,6 @@ import csv
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 
 from verifai.monitor import automaton_specification
-
-# ---------------------------------------------------------------------------
-# Load trace from sibling CSV
-# ---------------------------------------------------------------------------
 
 TRACE_PATH = os.path.join(os.path.dirname(__file__), "example_trace.csv")
 
@@ -43,19 +39,9 @@ def parse_trace(path: str) -> list[dict]:
         ]
 
 
-# ---------------------------------------------------------------------------
 # DFA: "never exceed speed limit"
-#
-# Two states:
-#   ok   (start, accepting) — speed limit respected so far
-#   fail (sink, rejecting)  — limit was exceeded at some point
-#
-# Alphabet: {"ok", "fast"}
-#
-#   ok   --ok-->   ok
-#   ok   --fast--> fail
-#   fail --*-->    fail   (absorbing)
-# ---------------------------------------------------------------------------
+# States: ok (start, accepting), fail (sink, rejecting)
+# ok --fast--> fail; fail absorbs everything
 
 def _speed_transition(state, symbol):
     if state == "ok" and symbol == "fast":
@@ -79,10 +65,6 @@ def make_speed_monitor(speed_limit: float):
         labeling_function=labeling_fn,
     )
 
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
 
 def test_speed_limit_15_violated():
     """
@@ -120,10 +102,10 @@ def test_speed_limit_15_violation_step():
     """
     trace = parse_trace(TRACE_PATH)
     monitor = make_speed_monitor(speed_limit=15.0)
-    advanced = monitor.advance_on_trace(trace[:1])
-    assert advanced.start == "fail", (
+    q_final = monitor.advance_on_trace(trace[:1], start="ok")
+    assert q_final == "fail", (
         f"Expected 'fail' after step 0 (speed={trace[0]['speed']:.2f}), "
-        f"got '{advanced.start}'"
+        f"got '{q_final}'"
     )
     print(f"PASS  test_speed_limit_15_violation_step  "
           f"(DFA in 'fail' after step 0, speed={trace[0]['speed']:.2f})")
@@ -136,17 +118,73 @@ def test_speed_limit_25_still_ok_midtrace():
     """
     trace = parse_trace(TRACE_PATH)
     monitor = make_speed_monitor(speed_limit=25.0)
-    advanced = monitor.advance_on_trace(trace[:50])
-    assert advanced.start == "ok", (
-        f"Expected 'ok' at step 50, got '{advanced.start}'"
+    q_final = monitor.advance_on_trace(trace[:50], start="ok")
+    assert q_final == "ok", (
+        f"Expected 'ok' at step 50, got '{q_final}'"
     )
     print("PASS  test_speed_limit_25_still_ok_midtrace  "
           "(DFA in 'ok' after 50 steps)")
 
 
-# ---------------------------------------------------------------------------
-# Runner
-# ---------------------------------------------------------------------------
+def test_incremental_monitoring():
+    """
+    Process the trace in two chunks and verify the final state matches
+    processing it all at once.
+    """
+    trace = parse_trace(TRACE_PATH)
+    monitor = make_speed_monitor(speed_limit=15.0)
+
+    # All at once
+    result_full = monitor.evaluate(trace)
+
+    # Incrementally: first half, then second half
+    mid = len(trace) // 2
+    q_mid = monitor.advance_on_trace(trace[:mid], start="ok")
+    q_final = monitor.advance_on_trace(trace[mid:], start=q_mid)
+    result_incremental = 1.0 if monitor._dfa._label(q_final) else -1.0
+
+    assert result_full == result_incremental, (
+        f"Incremental ({result_incremental}) != full ({result_full})"
+    )
+    print(f"PASS  test_incremental_monitoring  "
+          f"(both give {result_full}, mid-state='{q_mid}')")
+
+
+def test_fail_is_absorbing():
+    """
+    Once the DFA enters 'fail', continuing the trace cannot recover.
+    """
+    trace = parse_trace(TRACE_PATH)
+    monitor = make_speed_monitor(speed_limit=15.0)
+
+    # First step violates (speed > 15)
+    q_after_one = monitor.advance_on_trace(trace[:1], start="ok")
+    assert q_after_one == "fail"
+
+    # Rest of the trace cannot escape 'fail'
+    q_final = monitor.advance_on_trace(trace[1:], start=q_after_one)
+    assert q_final == "fail", (
+        f"Expected 'fail' (absorbing), got '{q_final}'"
+    )
+    assert not monitor._dfa._label(q_final)
+    print("PASS  test_fail_is_absorbing")
+
+
+def test_advance_from_custom_start():
+    """
+    Starting advance_on_trace from 'fail' stays in 'fail' regardless
+    of trace content.
+    """
+    trace = parse_trace(TRACE_PATH)
+    monitor = make_speed_monitor(speed_limit=25.0)  # trace complies at 25
+
+    # Even a compliant trace can't escape 'fail' if we start there
+    q_final = monitor.advance_on_trace(trace, start="fail")
+    assert q_final == "fail", (
+        f"Expected 'fail' when starting from 'fail', got '{q_final}'"
+    )
+    print("PASS  test_advance_from_custom_start")
+
 
 if __name__ == "__main__":
     tests = [
@@ -154,6 +192,9 @@ if __name__ == "__main__":
         test_speed_limit_25_compliant,
         test_speed_limit_15_violation_step,
         test_speed_limit_25_still_ok_midtrace,
+        test_incremental_monitoring,
+        test_fail_is_absorbing,
+        test_advance_from_custom_start,
     ]
 
     passed = 0

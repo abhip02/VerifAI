@@ -1,11 +1,11 @@
 """
-examples/compositional_analysis/dfa_test.py
+examples/compositional_analysis/dfa_tests/test_automaton_specification.py
 
-Unit tests for automaton_specification.
+Unit tests for automaton_specification with a toy goal/crash DFA.
 Run from the repo root:
-    python examples/compositional_analysis/dfa_test.py
+    python examples/compositional_analysis/dfa_tests/test_automaton_specification.py
 or with pytest:
-    pytest examples/compositional_analysis/dfa_test.py -v
+    pytest examples/compositional_analysis/dfa_tests/test_automaton_specification.py -v
 """
 
 import sys
@@ -17,9 +17,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "sr
 from verifai.monitor import automaton_specification
 
 
-# ---------------------------------------------------------------------------
-# Shared DFA definition
-# ---------------------------------------------------------------------------
 # Spec: "the vehicle must eventually reach the goal, and must never crash first"
 #
 # States:  q0 (start, non-accepting)
@@ -67,10 +64,6 @@ def make_monitor():
         labeling_function=_labeling_fn,
     )
 
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
 
 def test_success():
     """safe → safe → goal  should be accepted."""
@@ -122,10 +115,10 @@ def test_advance_on_trace_intermediate_state():
     """
     monitor = make_monitor()
     partial = [{"event": "safe"}, {"event": "safe"}]
-    advanced = monitor.advance_on_trace(partial)
+    q_final = monitor.advance_on_trace(partial, start="q0")
 
-    assert advanced.start == "q0", f"Expected q0, got {advanced.start}"
-    assert not advanced.label([]), "q0 should not be accepting"
+    assert q_final == "q0", f"Expected q0, got {q_final}"
+    assert not monitor._dfa._label(q_final), "q0 should not be accepting"
     print("PASS  test_advance_on_trace_intermediate_state")
 
 
@@ -136,18 +129,44 @@ def test_advance_on_trace_then_goal():
     """
     monitor = make_monitor()
     partial = [{"event": "safe"}, {"event": "safe"}]
-    advanced = monitor.advance_on_trace(partial)
+    q_mid = monitor.advance_on_trace(partial, start="q0")
 
-    # One more step: the raw symbol (already labeled) goes straight into dfa.advance
-    final = advanced.advance([_labeling_fn({"event": "goal"})])
-    assert final.start == "q1", f"Expected q1, got {final.start}"
-    assert final.label([]), "q1 should be accepting"
+    # One more step: advance from where we left off
+    q_final = monitor.advance_on_trace([{"event": "goal"}], start=q_mid)
+    assert q_final == "q1", f"Expected q1, got {q_final}"
+    assert monitor._dfa._label(q_final), "q1 should be accepting"
     print("PASS  test_advance_on_trace_then_goal")
 
 
-# ---------------------------------------------------------------------------
-# Runner
-# ---------------------------------------------------------------------------
+def test_advance_on_trace_crash_is_absorbing():
+    """
+    After crashing, further 'goal' steps cannot recover.
+    """
+    monitor = make_monitor()
+    q_after_crash = monitor.advance_on_trace(
+        [{"event": "safe"}, {"event": "crash"}], start="q0"
+    )
+    assert q_after_crash == "q2", f"Expected q2, got {q_after_crash}"
+
+    q_final = monitor.advance_on_trace([{"event": "goal"}], start=q_after_crash)
+    assert q_final == "q2", f"Expected q2 (absorbing), got {q_final}"
+    assert not monitor._dfa._label(q_final), "q2 should not be accepting"
+    print("PASS  test_advance_on_trace_crash_is_absorbing")
+
+
+def test_advance_on_trace_custom_start():
+    """
+    advance_on_trace with a non-default start state (e.g. q1).
+    From q1 (absorbing accept), any input stays in q1.
+    """
+    monitor = make_monitor()
+    q_final = monitor.advance_on_trace(
+        [{"event": "crash"}, {"event": "safe"}], start="q1"
+    )
+    assert q_final == "q1", f"Expected q1 (absorbing), got {q_final}"
+    assert monitor._dfa._label(q_final), "q1 should still be accepting"
+    print("PASS  test_advance_on_trace_custom_start")
+
 
 if __name__ == "__main__":
     tests = [
@@ -157,6 +176,8 @@ if __name__ == "__main__":
         test_immediate_goal,
         test_advance_on_trace_intermediate_state,
         test_advance_on_trace_then_goal,
+        test_advance_on_trace_crash_is_absorbing,
+        test_advance_on_trace_custom_start,
     ]
 
     passed = 0
