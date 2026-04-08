@@ -8,6 +8,13 @@ from scipy.stats import gaussian_kde
 
 from verifai.monitor import automaton_specification
 
+# A composition step is either a scenario name (sequential) or a
+# weighted dict of scenario names (random choice).
+# Examples:
+#   "S"                    → sequential step
+#   {"X": 0.6, "O": 0.4}  → random choice: X with prob 0.6, O with prob 0.4
+CompositionStep = Union[str, Dict[str, float]]
+
 @dataclass
 class ScenarioStats:
     rho: float
@@ -139,116 +146,247 @@ class CompositionalAnalysisEngine:
 
         return rho, uncertainty
 
-    ## Fixed "check" function that works on "automaton_specification" specs
     def check_with_dfa(
         self,
-        scenario: List[str],
+        scenario: List[CompositionStep],
         spec: automaton_specification,
         features: Optional[List[str]] = None,
         center_feat_idx: Optional[List[int]] = None,
-        bw_method: Union[str, int] = 10,
+        bw_method: Union[str, float] = 10,
     ) -> Tuple[float, float]:
         """
-        Identical structure to check(), with two substitutions:
+        Compositional verification with DFA spec, supporting both sequential
+        and random composition.
 
-        1. s_last filter  (was: label == True)
-           → keep traces whose DFA final state is accepting
+        Each element of `scenario` is either:
+            str              -> single scenario (sequential step)
+            dict[str, float] -> weighted random choice, e.g. {"X": 0.6, "O": 0.4}
 
-        2. labels_t_last  (was: t_last["label"])
-           → per-trace DFA acceptance float
+        Sequential:  rho *= rho_step_i
+        Random:      rho *= sum(w_j * rho_step_j)
 
-        q_init_dists[i] is the DFA state distribution at the *start* of
-        scenario i, **conditioned on acceptance through all prior scenarios**.
-        This avoids double-counting rejection probability: rho already
-        captures P(scenario i passes) multiplicatively, so the init dist
-        for the next scenario must only reflect where accepting traces
-        left the automaton.
+        DFA state distribution is tracked through each step, conditioned on
+        acceptance, so rejection probability is never double-counted.
         """
         if len(scenario) == 0:
-            raise ValueError("Scenario list must contain at least one scenario.")
+            raise ValueError("Scenario list must contain at least one step.")
 
-        n = len(scenario)
+        # Normalize: wrap bare strings so every step is a dict
+        steps = [
+            s if isinstance(s, dict) else {s: 1.0}
+            for s in scenario
+        ]
+
+        n = len(steps)
         delta = self.scenario_base.delta
         per_step_delta = delta / n
 
-        # --- Forward pass: compute q_init_dists conditioned on acceptance ---
-        # q_init_dists[i] is the DFA state distribution at the start of
-        # scenario i, conditioned on all prior scenarios accepting.
+        # Forward pass: compute q_init_dist at the start of each step,
+        # conditioned on acceptance through all prior steps.
         q_init_dists = []
         q_dist: Dict[object, float] = {spec._dfa.start: 1.0}
-        for s_name in scenario:
+        for step in steps:
             q_init_dists.append(q_dist)
-            df_s = self.scenario_base.data[s_name]
-            _, q_dist = self._dfa_labels(df_s, spec, q_dist)
+            q_dist = self._advance_q_dist_through_step(step, spec, q_dist)
 
-        # --- first scenario ---
-        df_first = self.scenario_base.data[scenario[0]]
-        labels_first, _ = self._dfa_labels(df_first, spec, q_init_dists[0])
+        # First step
+        first_rho, first_eps_ratio = self._evaluate_step(
+            steps[0], spec, q_init_dists[0], per_step_delta,
+            prev_step=None,
+            features=features, center_feat_idx=center_feat_idx,
+            bw_method=bw_method,
+        )
 
-        rho = float(np.mean(labels_first)) if len(labels_first) > 0 else 0.0
-        if rho == 0.0:
+        if first_rho == 0.0:
             return 0.0, 0.0
-        N_first = len(labels_first)
-        eps_first = np.sqrt(np.log(2 / per_step_delta) / (2 * N_first))
-        eps_rho_ratios = [eps_first / rho]
+
+        rho = first_rho
+        eps_rho_ratios = [first_eps_ratio]
 
         if n == 1:
             return rho, rho * eps_rho_ratios[0]
 
-        # --- compositional steps ---
-        for i in range(n - 1):
-            s_name, t_name = scenario[i], scenario[i + 1]
-            df_s, df_t = self.scenario_base.data[s_name], self.scenario_base.data[t_name]
+        # Subsequent steps
+        for i in range(1, n):
+            step_rho, step_eps_ratio = self._evaluate_step(
+                steps[i], spec, q_init_dists[i], per_step_delta,
+                prev_step=steps[i - 1],
+                features=features, center_feat_idx=center_feat_idx,
+                bw_method=bw_method,
+            )
 
-            # Run DFA on s traces to find which are accepting (replaces label == True).
-            # Use q_init_dists[i]: the distribution at the START of scenario i.
-            s_labels, _ = self._dfa_labels(df_s, spec, q_init_dists[i])
-            s_last_all = df_s.sort_values("step").groupby("trace_id").tail(1).copy()
-            s_last_all["trace_id"] = s_last_all["trace_id"].astype(str)
-            s_tids = (df_s.sort_values("step")
-                      .groupby("trace_id").tail(1)["trace_id"].astype(str).tolist())
-            accepting_tids = {tid for tid, acc in zip(s_tids, s_labels) if acc > 0.0}
-            s_last = s_last_all[s_last_all["trace_id"].isin(accepting_tids)]
+            rho *= step_rho
+            eps_rho_ratios.append(step_eps_ratio)
 
+        uncertainty = rho * np.sqrt(sum(e ** 2 for e in eps_rho_ratios))
+        return rho, uncertainty
+
+    def _evaluate_step(
+        self,
+        step: Dict[str, float],
+        spec: automaton_specification,
+        q_init_dist: Dict[object, float],
+        per_step_delta: float,
+        prev_step: Optional[Dict[str, float]],
+        features: Optional[List[str]],
+        center_feat_idx: Optional[List[int]],
+        bw_method: Union[str, float],
+    ) -> Tuple[float, float]:
+        """
+        Evaluate one composition step (sequential or random).
+
+        For a sequential step {"S": 1.0}, this behaves exactly as the
+        original check_with_dfa loop body.
+
+        For a random step {"X": 0.6, "O": 0.4}, it computes the
+        importance-weighted rho for each branch and returns the weighted
+        average.
+
+        Returns (rho_step, eps_ratio).
+        """
+        if prev_step is None:
+            # First step: no importance sampling, just DFA labels
+            rho_step = 0.0
+            weighted_eps_sq = 0.0
+
+            for branch_name, branch_weight in step.items():
+                df = self.scenario_base.data[branch_name]
+                labels, _ = self._dfa_labels(df, spec, q_init_dist)
+                branch_rho = float(np.mean(labels)) if len(labels) > 0 else 0.0
+                N = len(labels)
+                branch_eps = np.sqrt(np.log(2 / per_step_delta) / (2 * N)) if N > 0 else 0.0
+
+                rho_step += branch_weight * branch_rho
+                weighted_eps_sq += (branch_weight * branch_eps) ** 2
+
+            if rho_step == 0.0:
+                return 0.0, 0.0
+
+            return rho_step, np.sqrt(weighted_eps_sq) / rho_step
+
+        # Compositional step with importance sampling
+        if not features:
+            raise ValueError("Feature list must be provided for KDE.")
+
+        # Get accepting features and per-sample weights from the previous step
+        s_last_features, s_last_weights = self._get_prev_step_accepting_features(
+            prev_step, spec, q_init_dist, features, center_feat_idx,
+        )
+
+        rho_step = 0.0
+        weighted_eps_sq = 0.0
+
+        for branch_name, branch_weight in step.items():
+            df_t = self.scenario_base.data[branch_name]
             t_first = df_t.sort_values("step").groupby("trace_id").head(1)
+            labels_t, _ = self._dfa_labels(df_t, spec, q_init_dist)
 
-            # Run DFA on t traces using q_init_dists[i+1]: the distribution
-            # conditioned on acceptance through scenario i.  Since rho already
-            # captures the probability of prior acceptance multiplicatively,
-            # these labels are NOT double-discounted.
-            labels_t_last, _ = self._dfa_labels(df_t, spec, q_init_dists[i + 1])
+            t_first_features = t_first[features].to_numpy()
+            if center_feat_idx:
+                for j in center_feat_idx:
+                    t_first_features[:, j] -= np.mean(t_first_features[:, j])
 
-            # KDE and IS weights — identical to check()
-            if features:
-                s_last_features = s_last[features].to_numpy()
-                t_first_features = t_first[features].to_numpy()
-                if s_last_features.shape[0] < 2 or t_first_features.shape[0] < 2:
-                    return 0.0, 0.0
-                if center_feat_idx:
-                    for j in center_feat_idx:
-                        s_last_features[:, j] -= np.mean(s_last_features[:, j])
-                        t_first_features[:, j] -= np.mean(t_first_features[:, j])
-            else:
-                raise ValueError("Feature list must be provided for KDE.")
+            if s_last_features.shape[0] < 2 or t_first_features.shape[0] < 2:
+                continue
 
-            s_last_features, t_first_features = s_last_features.T, t_first_features.T
+            kde_s = gaussian_kde(s_last_features.T, bw_method=bw_method,
+                                 weights=s_last_weights)
+            kde_t = gaussian_kde(t_first_features.T, bw_method=bw_method)
 
-            kde_s_last = gaussian_kde(s_last_features, bw_method=bw_method)
-            kde_t_first = gaussian_kde(t_first_features, bw_method=bw_method)
-
-            p_vals = kde_s_last(t_first_features)
-            q_vals = kde_t_first(t_first_features)
+            p_vals = kde_s(t_first_features.T)
+            q_vals = kde_t(t_first_features.T)
             weights = np.nan_to_num(p_vals / q_vals, nan=0.0, posinf=0.0, neginf=0.0)
 
-            rho_step = np.sum(weights * labels_t_last) / np.sum(weights)
-            rho *= rho_step
-
+            branch_rho = np.sum(weights * labels_t) / np.sum(weights)
             N_eff = np.sum(weights) ** 2 / np.sum(weights ** 2)
-            epsilon_i = np.sqrt(np.log(2 / per_step_delta) / (2 * N_eff))
-            eps_rho_ratios.append(epsilon_i / rho_step)
+            branch_eps = np.sqrt(np.log(2 / per_step_delta) / (2 * N_eff))
 
-        uncertainty = rho * np.sqrt(np.sum([e ** 2 for e in eps_rho_ratios]))
-        return rho, uncertainty
+            rho_step += branch_weight * branch_rho
+            weighted_eps_sq += (branch_weight * branch_eps) ** 2
+
+        if rho_step == 0.0:
+            return 0.0, 0.0
+
+        return rho_step, np.sqrt(weighted_eps_sq) / rho_step
+
+    def _get_prev_step_accepting_features(
+        self,
+        prev_step: Dict[str, float],
+        spec: automaton_specification,
+        q_init_dist: Dict[object, float],
+        features: List[str],
+        center_feat_idx: Optional[List[int]],
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Collect last-step features from accepting traces across all branches
+        of the previous step, with per-sample weights reflecting branch
+        probabilities.
+
+        If prev_step is {"S1": 0.6, "S2": 0.4} and S1 has n1 accepting
+        traces while S2 has n2, each S1 sample gets weight 0.6/n1 and each
+        S2 sample gets weight 0.4/n2 (then normalized to sum to 1).
+
+        Returns (features_array, weights_array).
+        """
+        feat_parts = []
+        weight_parts = []
+
+        for branch_name, branch_weight in prev_step.items():
+            df = self.scenario_base.data[branch_name]
+            labels, _ = self._dfa_labels(df, spec, q_init_dist)
+
+            s_last_all = df.sort_values("step").groupby("trace_id").tail(1).copy()
+            s_last_all["trace_id"] = s_last_all["trace_id"].astype(str)
+            s_tids = (df.sort_values("step")
+                      .groupby("trace_id").tail(1)["trace_id"].astype(str).tolist())
+            accepting_tids = {tid for tid, acc in zip(s_tids, labels) if acc > 0.0}
+            s_last = s_last_all[s_last_all["trace_id"].isin(accepting_tids)]
+
+            n_acc = len(s_last)
+            if n_acc > 0:
+                feat_parts.append(s_last[features].to_numpy())
+                # Each sample from this branch gets weight branch_weight / n_acc
+                weight_parts.append(np.full(n_acc, branch_weight / n_acc))
+
+        if not feat_parts:
+            return np.empty((0, len(features))), np.empty(0)
+
+        feat_array = np.concatenate(feat_parts, axis=0)
+        raw_weights = np.concatenate(weight_parts)
+
+        # Normalize so weights sum to 1
+        raw_weights /= raw_weights.sum()
+
+        if center_feat_idx:
+            for j in center_feat_idx:
+                feat_array[:, j] -= np.average(feat_array[:, j], weights=raw_weights)
+
+        return feat_array, raw_weights
+
+    def _advance_q_dist_through_step(
+        self,
+        step: Dict[str, float],
+        spec: automaton_specification,
+        q_init_dist: Dict[object, float],
+    ) -> Dict[object, float]:
+        """
+        Advance the DFA state distribution through one composition step.
+        For a random step, the result is the weighted mixture of each
+        branch's q_final_dist.
+        """
+        mixed_dist: Dict[object, float] = {}
+
+        for branch_name, branch_weight in step.items():
+            df = self.scenario_base.data[branch_name]
+            _, branch_q_final = self._dfa_labels(df, spec, q_init_dist)
+
+            for q, w in branch_q_final.items():
+                mixed_dist[q] = mixed_dist.get(q, 0.0) + branch_weight * w
+
+        total = sum(mixed_dist.values())
+        if total > 0:
+            return {q: w / total for q, w in mixed_dist.items()}
+        return {spec._dfa.start: 1.0}
 
     @staticmethod
     def _dfa_labels(
@@ -291,9 +429,6 @@ class CompositionalAnalysisEngine:
                 is_acc = spec._dfa._label(q_final)
                 labels[idx] += w * (1.0 if is_acc else 0.0)
 
-                # Only accumulate final states from accepting evaluations.
-                # This conditions q_final_dist on acceptance, so downstream
-                # scenarios don't re-discount the rejection probability.
                 if is_acc:
                     q_final_accepting[q_final] = (
                         q_final_accepting.get(q_final, 0.0) + w
@@ -307,7 +442,6 @@ class CompositionalAnalysisEngine:
             q_final_dist = {spec._dfa.start: 1.0}
 
         return labels, q_final_dist
-
 
     def falsify(
         self,
