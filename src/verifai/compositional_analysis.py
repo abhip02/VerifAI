@@ -221,6 +221,34 @@ class CompositionalAnalysisEngine:
         uncertainty = rho * np.sqrt(sum(e ** 2 for e in eps_rho_ratios))
         return rho, uncertainty
 
+    def check_with_dfa_scenic(
+        self,
+        paths: List[Tuple[float, List[CompositionStep]]],
+        spec: automaton_specification,
+        features: Optional[List[str]] = None,
+        center_feat_idx: Optional[List[int]] = None,
+        bw_method: Union[str, float] = 10,
+    ) -> Tuple[float, float]:
+        """
+        Compositional verification for a Scenic spec parsed into
+        (probability, composition) paths (output of scenic_to_check_input).
+
+        Calls check_with_dfa on each path and returns the weighted sum:
+            rho = sum(p_i * rho_i)
+            eps = sqrt(sum((p_i * eps_i)^2))   [conservative, assumes independence]
+        """
+        rho = 0.0
+        variance_sum = 0.0
+        for path_prob, composition in paths:
+            path_rho, path_eps = self.check_with_dfa(
+                composition, spec,
+                features=features, center_feat_idx=center_feat_idx,
+                bw_method=bw_method,
+            )
+            rho += path_prob * path_rho
+            variance_sum += (path_prob * path_eps) ** 2
+        return rho, np.sqrt(variance_sum)
+
     def _evaluate_step(
         self,
         step: Dict[str, float],

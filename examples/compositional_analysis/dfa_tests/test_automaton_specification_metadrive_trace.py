@@ -10,11 +10,8 @@ or with pytest:
     pytest examples/compositional_analysis/dfa_tests/test_automaton_specification_metadrive_trace.py -v
 """
 
-import sys
 import os
 import csv
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 
 from verifai.monitor import automaton_specification
 

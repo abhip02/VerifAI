@@ -6,16 +6,11 @@ DFA: moving --near_stop--> stopped_once --near_stop--> stopped_twice (fail)
 Usage: pytest test_check_with_dfa_metadrive_two_stops.py -s
 """
 
-import sys, os
-from pathlib import Path
+import os
 
 import numpy as np
 import pandas as pd
 import pytest
-
-ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str((ROOT / ".." / ".." / ".." / "src").resolve()))
-sys.path.insert(0, str((ROOT / "..").resolve()))
 
 from verifai.monitor import automaton_specification
 from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine

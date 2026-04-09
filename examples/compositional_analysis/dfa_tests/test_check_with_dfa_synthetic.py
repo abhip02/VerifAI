@@ -32,14 +32,11 @@ Expected:
     Compositional rho  ≈ 0.4  (should match)
 """
 
-import sys
 import os
 import tempfile
 
 import numpy as np
 import pandas as pd
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 
 from verifai.monitor import automaton_specification
 from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine

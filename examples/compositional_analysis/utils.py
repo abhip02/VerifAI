@@ -4,80 +4,7 @@ import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.utils import set_random_seed
 from train import make_env
-
-
-def _add_obstacles(env, rng):
-    from metadrive.component.traffic_light.base_traffic_light import BaseTrafficLight
-
-    lane = env.agent.lane
-    lane_width = lane.width
-
-    stop_types = [
-        "traffic_light",
-        "traffic_light",
-        "traffic_light",
-        "box",
-        "box",
-        "cone",
-    ]
-
-    scenario = rng.choice(["many_close", "few_far", "mixed", "no_stop"])
-
-    if scenario == "many_close":
-        num_obstacles = rng.integers(3, 6)
-        pos_range = (10, 40)
-    elif scenario == "few_far":
-        num_obstacles = rng.integers(1, 3)
-        pos_range = (50, 100)
-    elif scenario == "mixed":
-        num_obstacles = rng.integers(2, 5)
-        pos_range = (15, 70)
-    else:
-        num_obstacles = 0
-
-    for i in range(num_obstacles):
-        stop_type = rng.choice(stop_types)
-        pos_ahead = rng.uniform(*pos_range)
-
-        if stop_type == "traffic_light":
-            position = lane.position(env.agent.position[0] + pos_ahead, 0)
-            position = (position[0], position[1] + rng.uniform(-0.3, 0.3) * lane_width)
-            try:
-                traffic_light = env.engine.spawn_object(
-                    BaseTrafficLight,
-                    position=position,
-                    lane=lane,
-                    random_seed=rng.integers(0, 10000)
-                )
-                traffic_light.set_red()
-            except Exception:
-                pass
-
-        elif stop_type == "box":
-            position = lane.position(env.agent.position[0] + pos_ahead, 0)
-            position = (position[0], position[1] + rng.uniform(-0.3, 0.3) * lane_width)
-            try:
-                env.engine.spawn_object(
-                    "box",
-                    position=position,
-                    heading=0.0,
-                    size=(1.0, 0.5),
-                    random_seed=rng.integers(0, 10000)
-                )
-            except Exception:
-                pass
-
-        elif stop_type == "cone":
-            position = lane.position(env.agent.position[0] + pos_ahead, 0)
-            position = (position[0], position[1] + rng.uniform(-0.3, 0.3) * lane_width)
-            try:
-                env.engine.spawn_object(
-                    "cone",
-                    position=position,
-                    random_seed=rng.integers(0, 10000)
-                )
-            except Exception:
-                pass
+from obstacles import add_obstacles
 
 
 def generate_traces(
@@ -124,6 +51,7 @@ def generate_traces(
 
     all_traces = []
     trace_id = 0
+    spawned_obstacles = []
 
     os.makedirs(save_dir, exist_ok=True)
 
@@ -131,7 +59,7 @@ def generate_traces(
         csv_path = os.path.join(save_dir, scenario, "traces.csv")
         os.makedirs(os.path.dirname(csv_path), exist_ok=True)
         f = open(csv_path, "w", newline="")
-        
+
         writer = csv.DictWriter(
             f,
             fieldnames=[
@@ -142,13 +70,17 @@ def generate_traces(
         writer.writeheader()
 
     for ep in range(n):
+        if spawned_obstacles:
+            env.engine.clear_objects([obj.id for obj in spawned_obstacles])
+            spawned_obstacles = []
+
         obs, _ = env.reset()
-        
+
         rng = np.random.default_rng(seed + ep)
-        
+
         if extra_obstacles and rng.random() < 0.6:
             try:
-                _add_obstacles(env, rng)
+                spawned_obstacles = add_obstacles(env, rng) or []
             except Exception:
                 pass
         

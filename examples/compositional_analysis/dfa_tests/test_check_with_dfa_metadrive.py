@@ -24,22 +24,12 @@ Usage:
     python test_check_with_dfa_metadrive.py
 """
 
-import sys
-import os
-from pathlib import Path
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 import numpy as np
 import pandas as pd
 import pytest
-
-PROJECT_ROOT = Path(__file__).resolve().parent
-SRC_DIR = PROJECT_ROOT / ".." / ".." / ".." / "src"
-if SRC_DIR.is_dir():
-    sys.path.insert(0, str(SRC_DIR))
-
-UTILS_DIR = PROJECT_ROOT / ".."
-if UTILS_DIR.is_dir():
-    sys.path.insert(0, str(UTILS_DIR.resolve()))
 
 from verifai.monitor import automaton_specification
 from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine

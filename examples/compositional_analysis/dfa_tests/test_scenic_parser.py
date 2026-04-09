@@ -5,13 +5,10 @@ Usage:
     python example_random_pipeline.py
 """
 
-import os
-import sys
-from pathlib import Path
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 import pandas as pd
-
-sys.path.insert(0, str(Path(__file__).resolve().parent / ".."))
 
 from verifai.monitor import automaton_specification
 from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine
@@ -86,13 +83,15 @@ if __name__ == "__main__":
         },
     }
 
-    # 2. Parse into check_with_dfa input
-    composition = scenic_to_check_input(scenic_spec)
-    print(f"Parsed composition: {composition}")
-    # → ["S", {"X": 0.6, "O": 0.4}]
+    # 2. Parse into check_with_dfa_scenic input
+    paths = scenic_to_check_input(scenic_spec)
+    print(f"Parsed paths ({len(paths)} path(s)):")
+    for prob, composition in paths:
+        print(f"  prob={prob:.4f}  steps={composition}")
+    # → [(1.0, ["S", {"X": 0.6, "O": 0.4}])]
 
     # 3. Figure out which primitive scenarios we need traces for
-    primitives = get_primitives(composition)
+    primitives = get_primitives(paths)
     print(f"Primitives to generate: {primitives}")
     # → {"S", "X", "O"}
 
@@ -118,18 +117,17 @@ if __name__ == "__main__":
         rho = df.groupby("trace_id")["label"].last().astype(float).mean()
         print(f"  {scenario}: {n} traces, rho={rho:.4f}")
 
-    # 6. Run check_with_dfa with the parsed composition
+    # 6. Run check_with_dfa_scenic with the parsed paths
     sb = ScenarioBase(logs)
     engine = CompositionalAnalysisEngine(sb)
 
-    rho, eps = engine.check_with_dfa(
-        composition,
+    rho, eps = engine.check_with_dfa_scenic(
+        paths,
         spec,
         features=["x", "y", "heading", "speed"],
         center_feat_idx=[0, 1],
         bw_method="scott",
     )
 
-    print(f"\n  Composition: {composition}")
-    print(f"  rho = {rho:.4f} +/- {eps:.4f}")
+    print(f"\n  rho = {rho:.4f} +/- {eps:.4f}")
     print(f"\nDone. Traces at: {os.path.abspath(SAVE_DIR)}")

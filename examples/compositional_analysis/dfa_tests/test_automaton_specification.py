@@ -8,12 +8,6 @@ or with pytest:
     pytest examples/compositional_analysis/dfa_tests/test_automaton_specification.py -v
 """
 
-import sys
-import os
-
-# Allow running from repo root or from this directory
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
-
 from verifai.monitor import automaton_specification
 
 
