@@ -1,6 +1,5 @@
 import numpy as np
 
-
 # Weighted pool of obstacle types. Duplicates increase probability.
 OBSTACLE_TYPES = [
     "traffic_light",
@@ -16,7 +15,6 @@ OBSTACLE_TYPES = [
     "broken_vehicle",
     "crashed_vehicle",
 ]
-
 
 def add_obstacles(env, rng):
     """
@@ -36,10 +34,10 @@ def add_obstacles(env, rng):
       - crashed_vehicle  : vehicle angled across the lane (simulates a crash)
 
     Scenarios:
-      - many_close  : 3–6 obstacles at 10–40 m ahead
-      - few_far     : 1–3 obstacles at 50–100 m ahead
-      - mixed       : 2–5 obstacles at 15–70 m ahead
-      - blocked     : 1–2 large obstacles (vehicle/barrier) at 20–40 m, forcing a hard stop
+      - many_close  : 3-6 obstacles at 10-40 m ahead
+      - few_far     : 1-3 obstacles at 50-100 m ahead
+      - mixed       : 2-5 obstacles at 15-70 m ahead
+      - blocked     : 1-2 large obstacles (vehicle/barrier) at 20-40 m, forcing a hard stop
       - no_stop     : no obstacles
     """
     from metadrive.component.traffic_light.base_traffic_light import BaseTrafficLight
