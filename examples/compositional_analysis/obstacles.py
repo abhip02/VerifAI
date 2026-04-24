@@ -16,7 +16,7 @@ OBSTACLE_TYPES = [
     "crashed_vehicle",
 ]
 
-def add_obstacles(env, rng):
+def add_obstacles(env, rng, max_pos_ahead: float = None):
     """
     Add random obstacles to a MetaDrive environment ahead of the agent.
 
@@ -67,6 +67,11 @@ def add_obstacles(env, rng):
         type_pool = ["barrier", "broken_vehicle", "crashed_vehicle", "barrier", "crashed_vehicle"]
     else:  # no_stop
         return spawned
+
+    if max_pos_ahead is not None:
+        pos_range = (pos_range[0], min(pos_range[1], max_pos_ahead))
+        if pos_range[0] >= pos_range[1]:
+            return spawned
 
     for _ in range(num_obstacles):
         obstacle_type = rng.choice(type_pool)

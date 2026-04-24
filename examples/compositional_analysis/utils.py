@@ -17,6 +17,8 @@ def generate_traces(
     gif: bool = False,
     extra_obstacles: bool = False,
     obstacle_seed: int = 0,
+    initial_speed_range: tuple = (40 / 3.6, 90 / 3.6),
+    max_obstacle_distance: float = None,
 ):
     """
     Runs MetaDrive simulation using a trained PPO model or expert policy and logs trajectory traces.
@@ -80,14 +82,14 @@ def generate_traces(
 
         if extra_obstacles and rng.random() < 0.6:
             try:
-                spawned_obstacles = add_obstacles(env, rng) or []
+                spawned_obstacles = add_obstacles(env, rng, max_pos_ahead=max_obstacle_distance) or []
             except Exception:
                 pass
         
         if use_expert:
             expert_policy = ExpertPolicy(env.agent)
 
-        initial_speed = rng.uniform(low=40/3.6, high=90/3.6)
+        initial_speed = rng.uniform(low=initial_speed_range[0], high=initial_speed_range[1])
         initial_velocity = env.agent.lane.direction * initial_speed
         env.agent.set_velocity(initial_velocity)
 
