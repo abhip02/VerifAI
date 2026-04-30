@@ -123,3 +123,5 @@ venv.bak/
 dmypy.json
 
 *.cproject
+
+uv.lock

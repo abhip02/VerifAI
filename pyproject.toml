@@ -43,6 +43,13 @@ dependencies = [
 	"progressbar2 ~= 3.53",
 	"networkx >= 2.6",
 	"statsmodels >= 0.13.2",
+	"pytest>=7.4.4",
+	"stable-baselines3>=2.4.1",
+	"dfa>=2.0.0",
+	"pytest-cov>=5.0.0",
+	"metadrive-simulator>=0.4.3",
+	"sumolib>=1.26.0",
+	"eclipse-sumo>=1.26.0",
 ]
 
 [project.optional-dependencies]
@@ -74,6 +81,7 @@ dev = [
 	"sphinx-tabs ~= 3.4.1",
 	"recommonmark >= 0.6.0",
 ]
+carla = ["carla==0.9.15 ; sys_platform == 'linux'"]
 
 [project.urls]
 Repository = "https://github.com/BerkeleyLearnVerify/VerifAI"
