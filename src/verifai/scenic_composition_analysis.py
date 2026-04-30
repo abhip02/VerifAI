@@ -509,10 +509,15 @@ def _infer_trace_wrapper_source(
     else:
         placement_prefix = " at 0 @ 0,"  # `new Object at 0 @ 0, with behavior X()`
     if primitive_kind == "behavior":
-        # Behaviors: keep fallback — behavior attached at ego creation time
+        # Behaviors: keep fallback — behavior attached at ego creation time.
+        # For driving-model wrappers the ego is given a small initial speed so
+        # it does not start from rest (a from-rest spawn produces a warm-up
+        # ramp where speed < STOP_THRESHOLD for the first several ticks, which
+        # gets misclassified by speed-thresholded DFA monitors).
+        speed_clause = ", with speed Range(8, 14)" if is_driving_model else ""
         setup_lines = [
             f"        ego = new {ego_class}{placement_prefix} "
-            f"with behavior {primitive_name}()",
+            f"with behavior {primitive_name}(){speed_clause}",
         ]
         compose_lines = ["        while True:", "            wait"]
     else:

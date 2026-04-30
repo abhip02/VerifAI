@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import math
 import multiprocessing as mp
 import os
@@ -201,6 +202,17 @@ def build_trace_jobs(
 
     enriched = build_enriched_graph(source, model=scenic_model)
     save_dir = Path(save_dir)
+
+    # Persist the parsed enriched graph as JSON for downstream compositional
+    # analysis (e.g. mapping primitives to DFA states).
+    try:
+        save_dir.mkdir(parents=True, exist_ok=True)
+        graph_json_path = save_dir / f"{Path(source).stem}_graph.json"
+        with graph_json_path.open("w", encoding="utf-8") as f:
+            json.dump(enriched, f, indent=2, default=str)
+        print(f"[graph] wrote parsed graph to {graph_json_path}")
+    except Exception as exc:
+        print(f"[graph] WARNING: could not write parsed graph JSON: {exc}")
 
     jobs: List[Dict[str, object]] = []
     for primitive in enriched["primitive_specs"]:
