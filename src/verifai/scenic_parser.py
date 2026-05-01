@@ -60,6 +60,8 @@ def get_primitives(composition: List[CompositionStep]) -> Set[str]:
     for step in composition:
         if isinstance(step, str):
             primitives.add(step)
+        elif isinstance(step, dict) and "__shuffle__" in step:
+            primitives.update(step["__shuffle__"])
         elif isinstance(step, dict):
             primitives.update(step.keys())
     return primitives
@@ -107,15 +109,13 @@ def _resolve_container(
             result.extend(expanded)
 
         elif isinstance(step, dict) and _is_shuffle(step):
-            # Shuffle: execute ALL branches sequentially in weight-descending order.
-            # Scenic's `do shuffle` always runs every branch but in a random order;
-            # we approximate this for check_with_dfa as sequential (highest weight
-            # first) so that all primitives get traces and can be composed.
+            # Shuffle: emit a marker so check_with_dfa can average over all
+            # permutations. Branch names are stored in weight-descending order
+            # as a stable tiebreak, but the evaluator treats all orderings equally.
             shuffle_dict = step["shuffle"]
-            ordered = sorted(shuffle_dict.items(), key=lambda kv: kv[1], reverse=True)
-            for branch_name, _ in ordered:
-                expanded = _resolve_container(branch_name, containers, visited)
-                result.extend(expanded)
+            branches = [b for b, _ in sorted(shuffle_dict.items(),
+                                              key=lambda kv: kv[1], reverse=True)]
+            result.append({"__shuffle__": branches})
 
         elif isinstance(step, dict) and _is_random_choice(step):
             # Random choice: {"ContainerA": 0.5, "ContainerB": 0.5}

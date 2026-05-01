@@ -1,0 +1,1828 @@
+{
+  "source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic",
+  "source_kind": "path",
+  "graph": {
+    "source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic",
+    "source_kind": "path",
+    "container_names": [
+      "<initial>",
+      "GoStraight",
+      "TurnLeft",
+      "TurnRight",
+      "Brake",
+      "Wander",
+      "MonolithicWander",
+      "Main"
+    ],
+    "statements": [
+      {
+        "node_id": "Main:1",
+        "container_name": "Main",
+        "operator": "choose",
+        "semantics": {
+          "container_kind": "scenario",
+          "execution": "single-enabled-choice",
+          "randomized": true,
+          "weighted": true
+        },
+        "invocations": [
+          {
+            "text": "GoStraight()",
+            "target": "GoStraight",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 132
+          },
+          {
+            "text": "TurnLeft()",
+            "target": "TurnLeft",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 132
+          },
+          {
+            "text": "TurnRight()",
+            "target": "TurnRight",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 132
+          },
+          {
+            "text": "Brake()",
+            "target": "Brake",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 132
+          }
+        ],
+        "line": 132,
+        "nesting": []
+      },
+      {
+        "node_id": "Main:2",
+        "container_name": "Main",
+        "operator": "choose",
+        "semantics": {
+          "container_kind": "scenario",
+          "execution": "single-enabled-choice",
+          "randomized": true,
+          "weighted": true
+        },
+        "invocations": [
+          {
+            "text": "GoStraight()",
+            "target": "GoStraight",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 133
+          },
+          {
+            "text": "TurnLeft()",
+            "target": "TurnLeft",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 133
+          },
+          {
+            "text": "TurnRight()",
+            "target": "TurnRight",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 133
+          },
+          {
+            "text": "Brake()",
+            "target": "Brake",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 133
+          }
+        ],
+        "line": 133,
+        "nesting": []
+      },
+      {
+        "node_id": "Main:3",
+        "container_name": "Main",
+        "operator": "choose",
+        "semantics": {
+          "container_kind": "scenario",
+          "execution": "single-enabled-choice",
+          "randomized": true,
+          "weighted": true
+        },
+        "invocations": [
+          {
+            "text": "GoStraight()",
+            "target": "GoStraight",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 134
+          },
+          {
+            "text": "TurnLeft()",
+            "target": "TurnLeft",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 134
+          },
+          {
+            "text": "TurnRight()",
+            "target": "TurnRight",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 134
+          },
+          {
+            "text": "Brake()",
+            "target": "Brake",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 134
+          }
+        ],
+        "line": 134,
+        "nesting": []
+      },
+      {
+        "node_id": "Main:4",
+        "container_name": "Main",
+        "operator": "choose",
+        "semantics": {
+          "container_kind": "scenario",
+          "execution": "single-enabled-choice",
+          "randomized": true,
+          "weighted": true
+        },
+        "invocations": [
+          {
+            "text": "GoStraight()",
+            "target": "GoStraight",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 135
+          },
+          {
+            "text": "TurnLeft()",
+            "target": "TurnLeft",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 135
+          },
+          {
+            "text": "TurnRight()",
+            "target": "TurnRight",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 135
+          },
+          {
+            "text": "Brake()",
+            "target": "Brake",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 135
+          }
+        ],
+        "line": 135,
+        "nesting": []
+      },
+      {
+        "node_id": "Main:5",
+        "container_name": "Main",
+        "operator": "choose",
+        "semantics": {
+          "container_kind": "scenario",
+          "execution": "single-enabled-choice",
+          "randomized": true,
+          "weighted": true
+        },
+        "invocations": [
+          {
+            "text": "GoStraight()",
+            "target": "GoStraight",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 136
+          },
+          {
+            "text": "TurnLeft()",
+            "target": "TurnLeft",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 136
+          },
+          {
+            "text": "TurnRight()",
+            "target": "TurnRight",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 136
+          },
+          {
+            "text": "Brake()",
+            "target": "Brake",
+            "weight": 1.0,
+            "is_weighted": true,
+            "line": 136
+          }
+        ],
+        "line": 136,
+        "nesting": []
+      }
+    ],
+    "nodes": [
+      {
+        "id": "initial:<initial>",
+        "kind": "initial",
+        "label": "<initial>",
+        "attributes": {
+          "name": "<initial>",
+          "kind": "initial"
+        }
+      },
+      {
+        "id": "behavior:GoStraight",
+        "kind": "behavior",
+        "label": "GoStraight",
+        "attributes": {
+          "name": "GoStraight",
+          "kind": "behavior"
+        }
+      },
+      {
+        "id": "behavior:TurnLeft",
+        "kind": "behavior",
+        "label": "TurnLeft",
+        "attributes": {
+          "name": "TurnLeft",
+          "kind": "behavior"
+        }
+      },
+      {
+        "id": "behavior:TurnRight",
+        "kind": "behavior",
+        "label": "TurnRight",
+        "attributes": {
+          "name": "TurnRight",
+          "kind": "behavior"
+        }
+      },
+      {
+        "id": "behavior:Brake",
+        "kind": "behavior",
+        "label": "Brake",
+        "attributes": {
+          "name": "Brake",
+          "kind": "behavior"
+        }
+      },
+      {
+        "id": "behavior:Wander",
+        "kind": "behavior",
+        "label": "Wander",
+        "attributes": {
+          "name": "Wander",
+          "kind": "behavior"
+        }
+      },
+      {
+        "id": "scenario:MonolithicWander",
+        "kind": "scenario",
+        "label": "MonolithicWander",
+        "attributes": {
+          "name": "MonolithicWander",
+          "kind": "scenario"
+        }
+      },
+      {
+        "id": "scenario:Main",
+        "kind": "scenario",
+        "label": "Main",
+        "attributes": {
+          "name": "Main",
+          "kind": "scenario"
+        }
+      },
+      {
+        "id": "Main:1",
+        "kind": "composition",
+        "label": "choose",
+        "attributes": {
+          "container": "Main",
+          "line": 132,
+          "nesting": [],
+          "container_kind": "scenario",
+          "execution": "single-enabled-choice",
+          "randomized": true,
+          "weighted": true
+        }
+      },
+      {
+        "id": "Main:1:invocation:0",
+        "kind": "invocation",
+        "label": "GoStraight",
+        "attributes": {
+          "text": "GoStraight()",
+          "target": "GoStraight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 132
+        }
+      },
+      {
+        "id": "Main:1:invocation:1",
+        "kind": "invocation",
+        "label": "TurnLeft",
+        "attributes": {
+          "text": "TurnLeft()",
+          "target": "TurnLeft",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 132
+        }
+      },
+      {
+        "id": "Main:1:invocation:2",
+        "kind": "invocation",
+        "label": "TurnRight",
+        "attributes": {
+          "text": "TurnRight()",
+          "target": "TurnRight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 132
+        }
+      },
+      {
+        "id": "Main:1:invocation:3",
+        "kind": "invocation",
+        "label": "Brake",
+        "attributes": {
+          "text": "Brake()",
+          "target": "Brake",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 132
+        }
+      },
+      {
+        "id": "Main:2",
+        "kind": "composition",
+        "label": "choose",
+        "attributes": {
+          "container": "Main",
+          "line": 133,
+          "nesting": [],
+          "container_kind": "scenario",
+          "execution": "single-enabled-choice",
+          "randomized": true,
+          "weighted": true
+        }
+      },
+      {
+        "id": "Main:2:invocation:0",
+        "kind": "invocation",
+        "label": "GoStraight",
+        "attributes": {
+          "text": "GoStraight()",
+          "target": "GoStraight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 133
+        }
+      },
+      {
+        "id": "Main:2:invocation:1",
+        "kind": "invocation",
+        "label": "TurnLeft",
+        "attributes": {
+          "text": "TurnLeft()",
+          "target": "TurnLeft",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 133
+        }
+      },
+      {
+        "id": "Main:2:invocation:2",
+        "kind": "invocation",
+        "label": "TurnRight",
+        "attributes": {
+          "text": "TurnRight()",
+          "target": "TurnRight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 133
+        }
+      },
+      {
+        "id": "Main:2:invocation:3",
+        "kind": "invocation",
+        "label": "Brake",
+        "attributes": {
+          "text": "Brake()",
+          "target": "Brake",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 133
+        }
+      },
+      {
+        "id": "Main:3",
+        "kind": "composition",
+        "label": "choose",
+        "attributes": {
+          "container": "Main",
+          "line": 134,
+          "nesting": [],
+          "container_kind": "scenario",
+          "execution": "single-enabled-choice",
+          "randomized": true,
+          "weighted": true
+        }
+      },
+      {
+        "id": "Main:3:invocation:0",
+        "kind": "invocation",
+        "label": "GoStraight",
+        "attributes": {
+          "text": "GoStraight()",
+          "target": "GoStraight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 134
+        }
+      },
+      {
+        "id": "Main:3:invocation:1",
+        "kind": "invocation",
+        "label": "TurnLeft",
+        "attributes": {
+          "text": "TurnLeft()",
+          "target": "TurnLeft",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 134
+        }
+      },
+      {
+        "id": "Main:3:invocation:2",
+        "kind": "invocation",
+        "label": "TurnRight",
+        "attributes": {
+          "text": "TurnRight()",
+          "target": "TurnRight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 134
+        }
+      },
+      {
+        "id": "Main:3:invocation:3",
+        "kind": "invocation",
+        "label": "Brake",
+        "attributes": {
+          "text": "Brake()",
+          "target": "Brake",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 134
+        }
+      },
+      {
+        "id": "Main:4",
+        "kind": "composition",
+        "label": "choose",
+        "attributes": {
+          "container": "Main",
+          "line": 135,
+          "nesting": [],
+          "container_kind": "scenario",
+          "execution": "single-enabled-choice",
+          "randomized": true,
+          "weighted": true
+        }
+      },
+      {
+        "id": "Main:4:invocation:0",
+        "kind": "invocation",
+        "label": "GoStraight",
+        "attributes": {
+          "text": "GoStraight()",
+          "target": "GoStraight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 135
+        }
+      },
+      {
+        "id": "Main:4:invocation:1",
+        "kind": "invocation",
+        "label": "TurnLeft",
+        "attributes": {
+          "text": "TurnLeft()",
+          "target": "TurnLeft",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 135
+        }
+      },
+      {
+        "id": "Main:4:invocation:2",
+        "kind": "invocation",
+        "label": "TurnRight",
+        "attributes": {
+          "text": "TurnRight()",
+          "target": "TurnRight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 135
+        }
+      },
+      {
+        "id": "Main:4:invocation:3",
+        "kind": "invocation",
+        "label": "Brake",
+        "attributes": {
+          "text": "Brake()",
+          "target": "Brake",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 135
+        }
+      },
+      {
+        "id": "Main:5",
+        "kind": "composition",
+        "label": "choose",
+        "attributes": {
+          "container": "Main",
+          "line": 136,
+          "nesting": [],
+          "container_kind": "scenario",
+          "execution": "single-enabled-choice",
+          "randomized": true,
+          "weighted": true
+        }
+      },
+      {
+        "id": "Main:5:invocation:0",
+        "kind": "invocation",
+        "label": "GoStraight",
+        "attributes": {
+          "text": "GoStraight()",
+          "target": "GoStraight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 136
+        }
+      },
+      {
+        "id": "Main:5:invocation:1",
+        "kind": "invocation",
+        "label": "TurnLeft",
+        "attributes": {
+          "text": "TurnLeft()",
+          "target": "TurnLeft",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 136
+        }
+      },
+      {
+        "id": "Main:5:invocation:2",
+        "kind": "invocation",
+        "label": "TurnRight",
+        "attributes": {
+          "text": "TurnRight()",
+          "target": "TurnRight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 136
+        }
+      },
+      {
+        "id": "Main:5:invocation:3",
+        "kind": "invocation",
+        "label": "Brake",
+        "attributes": {
+          "text": "Brake()",
+          "target": "Brake",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 136
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "scenario:Main",
+        "target": "Main:1",
+        "kind": "contains",
+        "attributes": {
+          "line": 132
+        }
+      },
+      {
+        "source": "Main:1",
+        "target": "Main:1:invocation:0",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "Main:1",
+        "target": "Main:1:invocation:1",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "Main:1",
+        "target": "Main:1:invocation:2",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "Main:1",
+        "target": "Main:1:invocation:3",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "scenario:Main",
+        "target": "Main:2",
+        "kind": "contains",
+        "attributes": {
+          "line": 133
+        }
+      },
+      {
+        "source": "Main:2",
+        "target": "Main:2:invocation:0",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "Main:2",
+        "target": "Main:2:invocation:1",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "Main:2",
+        "target": "Main:2:invocation:2",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "Main:2",
+        "target": "Main:2:invocation:3",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "scenario:Main",
+        "target": "Main:3",
+        "kind": "contains",
+        "attributes": {
+          "line": 134
+        }
+      },
+      {
+        "source": "Main:3",
+        "target": "Main:3:invocation:0",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "Main:3",
+        "target": "Main:3:invocation:1",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "Main:3",
+        "target": "Main:3:invocation:2",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "Main:3",
+        "target": "Main:3:invocation:3",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "scenario:Main",
+        "target": "Main:4",
+        "kind": "contains",
+        "attributes": {
+          "line": 135
+        }
+      },
+      {
+        "source": "Main:4",
+        "target": "Main:4:invocation:0",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "Main:4",
+        "target": "Main:4:invocation:1",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "Main:4",
+        "target": "Main:4:invocation:2",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "Main:4",
+        "target": "Main:4:invocation:3",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "scenario:Main",
+        "target": "Main:5",
+        "kind": "contains",
+        "attributes": {
+          "line": 136
+        }
+      },
+      {
+        "source": "Main:5",
+        "target": "Main:5:invocation:0",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "Main:5",
+        "target": "Main:5:invocation:1",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "Main:5",
+        "target": "Main:5:invocation:2",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "Main:5",
+        "target": "Main:5:invocation:3",
+        "kind": "invokes",
+        "attributes": {
+          "weight": 1.0
+        }
+      },
+      {
+        "source": "Main:1",
+        "target": "Main:2",
+        "kind": "next",
+        "attributes": {
+          "within": "Main"
+        }
+      },
+      {
+        "source": "Main:2",
+        "target": "Main:3",
+        "kind": "next",
+        "attributes": {
+          "within": "Main"
+        }
+      },
+      {
+        "source": "Main:3",
+        "target": "Main:4",
+        "kind": "next",
+        "attributes": {
+          "within": "Main"
+        }
+      },
+      {
+        "source": "Main:4",
+        "target": "Main:5",
+        "kind": "next",
+        "attributes": {
+          "within": "Main"
+        }
+      }
+    ]
+  },
+  "execution_structure": {
+    "container_ids": [
+      "initial:<initial>",
+      "behavior:GoStraight",
+      "behavior:TurnLeft",
+      "behavior:TurnRight",
+      "behavior:Brake",
+      "behavior:Wander",
+      "scenario:MonolithicWander",
+      "scenario:Main"
+    ],
+    "containers": {
+      "initial:<initial>": {
+        "node": {
+          "id": "initial:<initial>",
+          "kind": "initial",
+          "label": "<initial>",
+          "attributes": {
+            "name": "<initial>",
+            "kind": "initial"
+          }
+        },
+        "composition_ids": [],
+        "start_ids": []
+      },
+      "behavior:GoStraight": {
+        "node": {
+          "id": "behavior:GoStraight",
+          "kind": "behavior",
+          "label": "GoStraight",
+          "attributes": {
+            "name": "GoStraight",
+            "kind": "behavior"
+          }
+        },
+        "composition_ids": [],
+        "start_ids": []
+      },
+      "behavior:TurnLeft": {
+        "node": {
+          "id": "behavior:TurnLeft",
+          "kind": "behavior",
+          "label": "TurnLeft",
+          "attributes": {
+            "name": "TurnLeft",
+            "kind": "behavior"
+          }
+        },
+        "composition_ids": [],
+        "start_ids": []
+      },
+      "behavior:TurnRight": {
+        "node": {
+          "id": "behavior:TurnRight",
+          "kind": "behavior",
+          "label": "TurnRight",
+          "attributes": {
+            "name": "TurnRight",
+            "kind": "behavior"
+          }
+        },
+        "composition_ids": [],
+        "start_ids": []
+      },
+      "behavior:Brake": {
+        "node": {
+          "id": "behavior:Brake",
+          "kind": "behavior",
+          "label": "Brake",
+          "attributes": {
+            "name": "Brake",
+            "kind": "behavior"
+          }
+        },
+        "composition_ids": [],
+        "start_ids": []
+      },
+      "behavior:Wander": {
+        "node": {
+          "id": "behavior:Wander",
+          "kind": "behavior",
+          "label": "Wander",
+          "attributes": {
+            "name": "Wander",
+            "kind": "behavior"
+          }
+        },
+        "composition_ids": [],
+        "start_ids": []
+      },
+      "scenario:MonolithicWander": {
+        "node": {
+          "id": "scenario:MonolithicWander",
+          "kind": "scenario",
+          "label": "MonolithicWander",
+          "attributes": {
+            "name": "MonolithicWander",
+            "kind": "scenario"
+          }
+        },
+        "composition_ids": [],
+        "start_ids": []
+      },
+      "scenario:Main": {
+        "node": {
+          "id": "scenario:Main",
+          "kind": "scenario",
+          "label": "Main",
+          "attributes": {
+            "name": "Main",
+            "kind": "scenario"
+          }
+        },
+        "composition_ids": [
+          "Main:1",
+          "Main:2",
+          "Main:3",
+          "Main:4",
+          "Main:5"
+        ],
+        "start_ids": [
+          "Main:1"
+        ]
+      }
+    },
+    "compositions": {
+      "Main:1": {
+        "node": {
+          "id": "Main:1",
+          "kind": "composition",
+          "label": "choose",
+          "attributes": {
+            "container": "Main",
+            "line": 132,
+            "nesting": [],
+            "container_kind": "scenario",
+            "execution": "single-enabled-choice",
+            "randomized": true,
+            "weighted": true
+          }
+        },
+        "invocation_ids": [
+          "Main:1:invocation:0",
+          "Main:1:invocation:1",
+          "Main:1:invocation:2",
+          "Main:1:invocation:3"
+        ],
+        "next_ids": [
+          "Main:2"
+        ]
+      },
+      "Main:2": {
+        "node": {
+          "id": "Main:2",
+          "kind": "composition",
+          "label": "choose",
+          "attributes": {
+            "container": "Main",
+            "line": 133,
+            "nesting": [],
+            "container_kind": "scenario",
+            "execution": "single-enabled-choice",
+            "randomized": true,
+            "weighted": true
+          }
+        },
+        "invocation_ids": [
+          "Main:2:invocation:0",
+          "Main:2:invocation:1",
+          "Main:2:invocation:2",
+          "Main:2:invocation:3"
+        ],
+        "next_ids": [
+          "Main:3"
+        ]
+      },
+      "Main:3": {
+        "node": {
+          "id": "Main:3",
+          "kind": "composition",
+          "label": "choose",
+          "attributes": {
+            "container": "Main",
+            "line": 134,
+            "nesting": [],
+            "container_kind": "scenario",
+            "execution": "single-enabled-choice",
+            "randomized": true,
+            "weighted": true
+          }
+        },
+        "invocation_ids": [
+          "Main:3:invocation:0",
+          "Main:3:invocation:1",
+          "Main:3:invocation:2",
+          "Main:3:invocation:3"
+        ],
+        "next_ids": [
+          "Main:4"
+        ]
+      },
+      "Main:4": {
+        "node": {
+          "id": "Main:4",
+          "kind": "composition",
+          "label": "choose",
+          "attributes": {
+            "container": "Main",
+            "line": 135,
+            "nesting": [],
+            "container_kind": "scenario",
+            "execution": "single-enabled-choice",
+            "randomized": true,
+            "weighted": true
+          }
+        },
+        "invocation_ids": [
+          "Main:4:invocation:0",
+          "Main:4:invocation:1",
+          "Main:4:invocation:2",
+          "Main:4:invocation:3"
+        ],
+        "next_ids": [
+          "Main:5"
+        ]
+      },
+      "Main:5": {
+        "node": {
+          "id": "Main:5",
+          "kind": "composition",
+          "label": "choose",
+          "attributes": {
+            "container": "Main",
+            "line": 136,
+            "nesting": [],
+            "container_kind": "scenario",
+            "execution": "single-enabled-choice",
+            "randomized": true,
+            "weighted": true
+          }
+        },
+        "invocation_ids": [
+          "Main:5:invocation:0",
+          "Main:5:invocation:1",
+          "Main:5:invocation:2",
+          "Main:5:invocation:3"
+        ],
+        "next_ids": []
+      }
+    },
+    "invocations": {
+      "Main:1:invocation:0": {
+        "id": "Main:1:invocation:0",
+        "kind": "invocation",
+        "label": "GoStraight",
+        "attributes": {
+          "text": "GoStraight()",
+          "target": "GoStraight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 132
+        }
+      },
+      "Main:1:invocation:1": {
+        "id": "Main:1:invocation:1",
+        "kind": "invocation",
+        "label": "TurnLeft",
+        "attributes": {
+          "text": "TurnLeft()",
+          "target": "TurnLeft",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 132
+        }
+      },
+      "Main:1:invocation:2": {
+        "id": "Main:1:invocation:2",
+        "kind": "invocation",
+        "label": "TurnRight",
+        "attributes": {
+          "text": "TurnRight()",
+          "target": "TurnRight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 132
+        }
+      },
+      "Main:1:invocation:3": {
+        "id": "Main:1:invocation:3",
+        "kind": "invocation",
+        "label": "Brake",
+        "attributes": {
+          "text": "Brake()",
+          "target": "Brake",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 132
+        }
+      },
+      "Main:2:invocation:0": {
+        "id": "Main:2:invocation:0",
+        "kind": "invocation",
+        "label": "GoStraight",
+        "attributes": {
+          "text": "GoStraight()",
+          "target": "GoStraight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 133
+        }
+      },
+      "Main:2:invocation:1": {
+        "id": "Main:2:invocation:1",
+        "kind": "invocation",
+        "label": "TurnLeft",
+        "attributes": {
+          "text": "TurnLeft()",
+          "target": "TurnLeft",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 133
+        }
+      },
+      "Main:2:invocation:2": {
+        "id": "Main:2:invocation:2",
+        "kind": "invocation",
+        "label": "TurnRight",
+        "attributes": {
+          "text": "TurnRight()",
+          "target": "TurnRight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 133
+        }
+      },
+      "Main:2:invocation:3": {
+        "id": "Main:2:invocation:3",
+        "kind": "invocation",
+        "label": "Brake",
+        "attributes": {
+          "text": "Brake()",
+          "target": "Brake",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 133
+        }
+      },
+      "Main:3:invocation:0": {
+        "id": "Main:3:invocation:0",
+        "kind": "invocation",
+        "label": "GoStraight",
+        "attributes": {
+          "text": "GoStraight()",
+          "target": "GoStraight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 134
+        }
+      },
+      "Main:3:invocation:1": {
+        "id": "Main:3:invocation:1",
+        "kind": "invocation",
+        "label": "TurnLeft",
+        "attributes": {
+          "text": "TurnLeft()",
+          "target": "TurnLeft",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 134
+        }
+      },
+      "Main:3:invocation:2": {
+        "id": "Main:3:invocation:2",
+        "kind": "invocation",
+        "label": "TurnRight",
+        "attributes": {
+          "text": "TurnRight()",
+          "target": "TurnRight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 134
+        }
+      },
+      "Main:3:invocation:3": {
+        "id": "Main:3:invocation:3",
+        "kind": "invocation",
+        "label": "Brake",
+        "attributes": {
+          "text": "Brake()",
+          "target": "Brake",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 134
+        }
+      },
+      "Main:4:invocation:0": {
+        "id": "Main:4:invocation:0",
+        "kind": "invocation",
+        "label": "GoStraight",
+        "attributes": {
+          "text": "GoStraight()",
+          "target": "GoStraight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 135
+        }
+      },
+      "Main:4:invocation:1": {
+        "id": "Main:4:invocation:1",
+        "kind": "invocation",
+        "label": "TurnLeft",
+        "attributes": {
+          "text": "TurnLeft()",
+          "target": "TurnLeft",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 135
+        }
+      },
+      "Main:4:invocation:2": {
+        "id": "Main:4:invocation:2",
+        "kind": "invocation",
+        "label": "TurnRight",
+        "attributes": {
+          "text": "TurnRight()",
+          "target": "TurnRight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 135
+        }
+      },
+      "Main:4:invocation:3": {
+        "id": "Main:4:invocation:3",
+        "kind": "invocation",
+        "label": "Brake",
+        "attributes": {
+          "text": "Brake()",
+          "target": "Brake",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 135
+        }
+      },
+      "Main:5:invocation:0": {
+        "id": "Main:5:invocation:0",
+        "kind": "invocation",
+        "label": "GoStraight",
+        "attributes": {
+          "text": "GoStraight()",
+          "target": "GoStraight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 136
+        }
+      },
+      "Main:5:invocation:1": {
+        "id": "Main:5:invocation:1",
+        "kind": "invocation",
+        "label": "TurnLeft",
+        "attributes": {
+          "text": "TurnLeft()",
+          "target": "TurnLeft",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 136
+        }
+      },
+      "Main:5:invocation:2": {
+        "id": "Main:5:invocation:2",
+        "kind": "invocation",
+        "label": "TurnRight",
+        "attributes": {
+          "text": "TurnRight()",
+          "target": "TurnRight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 136
+        }
+      },
+      "Main:5:invocation:3": {
+        "id": "Main:5:invocation:3",
+        "kind": "invocation",
+        "label": "Brake",
+        "attributes": {
+          "text": "Brake()",
+          "target": "Brake",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 136
+        }
+      }
+    },
+    "node_by_id": {
+      "initial:<initial>": {
+        "id": "initial:<initial>",
+        "kind": "initial",
+        "label": "<initial>",
+        "attributes": {
+          "name": "<initial>",
+          "kind": "initial"
+        }
+      },
+      "behavior:GoStraight": {
+        "id": "behavior:GoStraight",
+        "kind": "behavior",
+        "label": "GoStraight",
+        "attributes": {
+          "name": "GoStraight",
+          "kind": "behavior"
+        }
+      },
+      "behavior:TurnLeft": {
+        "id": "behavior:TurnLeft",
+        "kind": "behavior",
+        "label": "TurnLeft",
+        "attributes": {
+          "name": "TurnLeft",
+          "kind": "behavior"
+        }
+      },
+      "behavior:TurnRight": {
+        "id": "behavior:TurnRight",
+        "kind": "behavior",
+        "label": "TurnRight",
+        "attributes": {
+          "name": "TurnRight",
+          "kind": "behavior"
+        }
+      },
+      "behavior:Brake": {
+        "id": "behavior:Brake",
+        "kind": "behavior",
+        "label": "Brake",
+        "attributes": {
+          "name": "Brake",
+          "kind": "behavior"
+        }
+      },
+      "behavior:Wander": {
+        "id": "behavior:Wander",
+        "kind": "behavior",
+        "label": "Wander",
+        "attributes": {
+          "name": "Wander",
+          "kind": "behavior"
+        }
+      },
+      "scenario:MonolithicWander": {
+        "id": "scenario:MonolithicWander",
+        "kind": "scenario",
+        "label": "MonolithicWander",
+        "attributes": {
+          "name": "MonolithicWander",
+          "kind": "scenario"
+        }
+      },
+      "scenario:Main": {
+        "id": "scenario:Main",
+        "kind": "scenario",
+        "label": "Main",
+        "attributes": {
+          "name": "Main",
+          "kind": "scenario"
+        }
+      },
+      "Main:1": {
+        "id": "Main:1",
+        "kind": "composition",
+        "label": "choose",
+        "attributes": {
+          "container": "Main",
+          "line": 132,
+          "nesting": [],
+          "container_kind": "scenario",
+          "execution": "single-enabled-choice",
+          "randomized": true,
+          "weighted": true
+        }
+      },
+      "Main:1:invocation:0": {
+        "id": "Main:1:invocation:0",
+        "kind": "invocation",
+        "label": "GoStraight",
+        "attributes": {
+          "text": "GoStraight()",
+          "target": "GoStraight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 132
+        }
+      },
+      "Main:1:invocation:1": {
+        "id": "Main:1:invocation:1",
+        "kind": "invocation",
+        "label": "TurnLeft",
+        "attributes": {
+          "text": "TurnLeft()",
+          "target": "TurnLeft",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 132
+        }
+      },
+      "Main:1:invocation:2": {
+        "id": "Main:1:invocation:2",
+        "kind": "invocation",
+        "label": "TurnRight",
+        "attributes": {
+          "text": "TurnRight()",
+          "target": "TurnRight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 132
+        }
+      },
+      "Main:1:invocation:3": {
+        "id": "Main:1:invocation:3",
+        "kind": "invocation",
+        "label": "Brake",
+        "attributes": {
+          "text": "Brake()",
+          "target": "Brake",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 132
+        }
+      },
+      "Main:2": {
+        "id": "Main:2",
+        "kind": "composition",
+        "label": "choose",
+        "attributes": {
+          "container": "Main",
+          "line": 133,
+          "nesting": [],
+          "container_kind": "scenario",
+          "execution": "single-enabled-choice",
+          "randomized": true,
+          "weighted": true
+        }
+      },
+      "Main:2:invocation:0": {
+        "id": "Main:2:invocation:0",
+        "kind": "invocation",
+        "label": "GoStraight",
+        "attributes": {
+          "text": "GoStraight()",
+          "target": "GoStraight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 133
+        }
+      },
+      "Main:2:invocation:1": {
+        "id": "Main:2:invocation:1",
+        "kind": "invocation",
+        "label": "TurnLeft",
+        "attributes": {
+          "text": "TurnLeft()",
+          "target": "TurnLeft",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 133
+        }
+      },
+      "Main:2:invocation:2": {
+        "id": "Main:2:invocation:2",
+        "kind": "invocation",
+        "label": "TurnRight",
+        "attributes": {
+          "text": "TurnRight()",
+          "target": "TurnRight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 133
+        }
+      },
+      "Main:2:invocation:3": {
+        "id": "Main:2:invocation:3",
+        "kind": "invocation",
+        "label": "Brake",
+        "attributes": {
+          "text": "Brake()",
+          "target": "Brake",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 133
+        }
+      },
+      "Main:3": {
+        "id": "Main:3",
+        "kind": "composition",
+        "label": "choose",
+        "attributes": {
+          "container": "Main",
+          "line": 134,
+          "nesting": [],
+          "container_kind": "scenario",
+          "execution": "single-enabled-choice",
+          "randomized": true,
+          "weighted": true
+        }
+      },
+      "Main:3:invocation:0": {
+        "id": "Main:3:invocation:0",
+        "kind": "invocation",
+        "label": "GoStraight",
+        "attributes": {
+          "text": "GoStraight()",
+          "target": "GoStraight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 134
+        }
+      },
+      "Main:3:invocation:1": {
+        "id": "Main:3:invocation:1",
+        "kind": "invocation",
+        "label": "TurnLeft",
+        "attributes": {
+          "text": "TurnLeft()",
+          "target": "TurnLeft",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 134
+        }
+      },
+      "Main:3:invocation:2": {
+        "id": "Main:3:invocation:2",
+        "kind": "invocation",
+        "label": "TurnRight",
+        "attributes": {
+          "text": "TurnRight()",
+          "target": "TurnRight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 134
+        }
+      },
+      "Main:3:invocation:3": {
+        "id": "Main:3:invocation:3",
+        "kind": "invocation",
+        "label": "Brake",
+        "attributes": {
+          "text": "Brake()",
+          "target": "Brake",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 134
+        }
+      },
+      "Main:4": {
+        "id": "Main:4",
+        "kind": "composition",
+        "label": "choose",
+        "attributes": {
+          "container": "Main",
+          "line": 135,
+          "nesting": [],
+          "container_kind": "scenario",
+          "execution": "single-enabled-choice",
+          "randomized": true,
+          "weighted": true
+        }
+      },
+      "Main:4:invocation:0": {
+        "id": "Main:4:invocation:0",
+        "kind": "invocation",
+        "label": "GoStraight",
+        "attributes": {
+          "text": "GoStraight()",
+          "target": "GoStraight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 135
+        }
+      },
+      "Main:4:invocation:1": {
+        "id": "Main:4:invocation:1",
+        "kind": "invocation",
+        "label": "TurnLeft",
+        "attributes": {
+          "text": "TurnLeft()",
+          "target": "TurnLeft",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 135
+        }
+      },
+      "Main:4:invocation:2": {
+        "id": "Main:4:invocation:2",
+        "kind": "invocation",
+        "label": "TurnRight",
+        "attributes": {
+          "text": "TurnRight()",
+          "target": "TurnRight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 135
+        }
+      },
+      "Main:4:invocation:3": {
+        "id": "Main:4:invocation:3",
+        "kind": "invocation",
+        "label": "Brake",
+        "attributes": {
+          "text": "Brake()",
+          "target": "Brake",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 135
+        }
+      },
+      "Main:5": {
+        "id": "Main:5",
+        "kind": "composition",
+        "label": "choose",
+        "attributes": {
+          "container": "Main",
+          "line": 136,
+          "nesting": [],
+          "container_kind": "scenario",
+          "execution": "single-enabled-choice",
+          "randomized": true,
+          "weighted": true
+        }
+      },
+      "Main:5:invocation:0": {
+        "id": "Main:5:invocation:0",
+        "kind": "invocation",
+        "label": "GoStraight",
+        "attributes": {
+          "text": "GoStraight()",
+          "target": "GoStraight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 136
+        }
+      },
+      "Main:5:invocation:1": {
+        "id": "Main:5:invocation:1",
+        "kind": "invocation",
+        "label": "TurnLeft",
+        "attributes": {
+          "text": "TurnLeft()",
+          "target": "TurnLeft",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 136
+        }
+      },
+      "Main:5:invocation:2": {
+        "id": "Main:5:invocation:2",
+        "kind": "invocation",
+        "label": "TurnRight",
+        "attributes": {
+          "text": "TurnRight()",
+          "target": "TurnRight",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 136
+        }
+      },
+      "Main:5:invocation:3": {
+        "id": "Main:5:invocation:3",
+        "kind": "invocation",
+        "label": "Brake",
+        "attributes": {
+          "text": "Brake()",
+          "target": "Brake",
+          "weight": 1.0,
+          "is_weighted": true,
+          "line": 136
+        }
+      }
+    }
+  },
+  "container_origins": {
+    "GoStraight": {
+      "kind": "behavior",
+      "source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic"
+    },
+    "TurnLeft": {
+      "kind": "behavior",
+      "source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic"
+    },
+    "TurnRight": {
+      "kind": "behavior",
+      "source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic"
+    },
+    "Brake": {
+      "kind": "behavior",
+      "source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic"
+    },
+    "Wander": {
+      "kind": "behavior",
+      "source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic"
+    },
+    "MonolithicWander": {
+      "kind": "scenario",
+      "source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic"
+    },
+    "Main": {
+      "kind": "scenario",
+      "source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic"
+    }
+  },
+  "primitive_specs": [
+    {
+      "name": "GoStraight",
+      "kind": "behavior",
+      "container_id": "behavior:GoStraight",
+      "source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic",
+      "root_source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic",
+      "is_leaf": true,
+      "is_executable": true,
+      "wrapper_source": "from composed_wander import *\n\nscenario GraphTraceEntry_GoStraight():\n    setup:\n        ego = new Car with behavior GoStraight(), with speed Range(8, 14)\n    compose:\n        while True:\n            wait\n",
+      "wrapper_entrypoint": "GraphTraceEntry_GoStraight"
+    },
+    {
+      "name": "TurnLeft",
+      "kind": "behavior",
+      "container_id": "behavior:TurnLeft",
+      "source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic",
+      "root_source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic",
+      "is_leaf": true,
+      "is_executable": true,
+      "wrapper_source": "from composed_wander import *\n\nscenario GraphTraceEntry_TurnLeft():\n    setup:\n        ego = new Car with behavior TurnLeft(), with speed Range(8, 14)\n    compose:\n        while True:\n            wait\n",
+      "wrapper_entrypoint": "GraphTraceEntry_TurnLeft"
+    },
+    {
+      "name": "TurnRight",
+      "kind": "behavior",
+      "container_id": "behavior:TurnRight",
+      "source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic",
+      "root_source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic",
+      "is_leaf": true,
+      "is_executable": true,
+      "wrapper_source": "from composed_wander import *\n\nscenario GraphTraceEntry_TurnRight():\n    setup:\n        ego = new Car with behavior TurnRight(), with speed Range(8, 14)\n    compose:\n        while True:\n            wait\n",
+      "wrapper_entrypoint": "GraphTraceEntry_TurnRight"
+    },
+    {
+      "name": "Brake",
+      "kind": "behavior",
+      "container_id": "behavior:Brake",
+      "source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic",
+      "root_source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic",
+      "is_leaf": true,
+      "is_executable": true,
+      "wrapper_source": "from composed_wander import *\n\nscenario GraphTraceEntry_Brake():\n    setup:\n        ego = new Car with behavior Brake(), with speed Range(8, 14)\n    compose:\n        while True:\n            wait\n",
+      "wrapper_entrypoint": "GraphTraceEntry_Brake"
+    },
+    {
+      "name": "Wander",
+      "kind": "behavior",
+      "container_id": "behavior:Wander",
+      "source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic",
+      "root_source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic",
+      "is_leaf": true,
+      "is_executable": true,
+      "wrapper_source": "from composed_wander import *\n\nscenario GraphTraceEntry_Wander():\n    setup:\n        ego = new Car with behavior Wander(), with speed Range(8, 14)\n    compose:\n        while True:\n            wait\n",
+      "wrapper_entrypoint": "GraphTraceEntry_Wander"
+    },
+    {
+      "name": "MonolithicWander",
+      "kind": "scenario",
+      "container_id": "scenario:MonolithicWander",
+      "source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic",
+      "root_source_path": "/Users/abhi/Documents/research/seshia_research/verifai_fork/VerifAI/examples/compositional_analysis/dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_wander.scenic",
+      "is_leaf": true,
+      "is_executable": true,
+      "wrapper_source": "from composed_wander import *\n\nscenario GraphTraceEntry_MonolithicWander():\n    setup:\n        ego = new Car\n    compose:\n        do MonolithicWander()\n",
+      "wrapper_entrypoint": "GraphTraceEntry_MonolithicWander"
+    }
+  ]
+}

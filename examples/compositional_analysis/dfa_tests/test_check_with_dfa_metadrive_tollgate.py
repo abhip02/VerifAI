@@ -26,7 +26,7 @@ from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEn
 STOP_THRESHOLD_MS = 3.5
 REQUIRED_WAIT_STEPS = 3
 N_EPISODES = 100
-TRACE_DIR = os.path.join(os.path.dirname(__file__), "dfa_test_traces_tollgate")
+TRACE_DIR = os.path.join(os.path.dirname(__file__), "storage", "tollgate")
 
 
 def make_spec():

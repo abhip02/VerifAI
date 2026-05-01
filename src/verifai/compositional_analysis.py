@@ -171,6 +171,9 @@ class CompositionalAnalysisEngine:
         if len(scenario) == 0:
             raise ValueError("Scenario list must contain at least one step.")
 
+        if any(isinstance(s, dict) and "__shuffle__" in s for s in scenario):
+            return self._check_with_dfa_shuffle(scenario, spec, features, center_feat_idx, bw_method)
+
         # Normalize: wrap bare strings so every step is a dict
         steps = [
             s if isinstance(s, dict) else {s: 1.0}
@@ -221,22 +224,63 @@ class CompositionalAnalysisEngine:
         uncertainty = rho * np.sqrt(sum(e ** 2 for e in eps_rho_ratios))
         return rho, uncertainty
 
+    def _check_with_dfa_shuffle(
+        self,
+        scenario: List[CompositionStep],
+        spec: automaton_specification,
+        features: Optional[List[str]],
+        center_feat_idx: Optional[List[int]],
+        bw_method: Union[str, float],
+    ) -> Tuple[float, float]:
+        """Average check_with_dfa over all permutations of each shuffle step."""
+        from itertools import permutations as _perms
+
+        def expand(steps):
+            for i, s in enumerate(steps):
+                if isinstance(s, dict) and "__shuffle__" in s:
+                    branches = s["__shuffle__"]
+                    result = []
+                    for perm in _perms(branches):
+                        expanded = steps[:i] + list(perm) + steps[i + 1:]
+                        result.extend(expand(expanded))
+                    return result
+            return [steps]
+
+        all_scenarios = expand(list(scenario))
+        weight = 1.0 / len(all_scenarios)
+        total_rho = 0.0
+        variance_sum = 0.0
+        for s in all_scenarios:
+            rho, eps = self.check_with_dfa(s, spec, features, center_feat_idx, bw_method)
+            total_rho += weight * rho
+            variance_sum += (weight * eps) ** 2
+        return total_rho, float(np.sqrt(variance_sum))
+
     def check_with_dfa_scenic(
         self,
-        paths: List[Tuple[float, List[CompositionStep]]],
+        paths: Union[List[Tuple[float, List[CompositionStep]]], List[CompositionStep]],
         spec: automaton_specification,
         features: Optional[List[str]] = None,
         center_feat_idx: Optional[List[int]] = None,
         bw_method: Union[str, float] = 10,
     ) -> Tuple[float, float]:
         """
-        Compositional verification for a Scenic spec parsed into
-        (probability, composition) paths (output of scenic_to_check_input).
+        Compositional verification for a Scenic spec.
+
+        Accepts either:
+          - List[(prob, composition)] — the legacy wrapped format
+          - List[CompositionStep]      — the flat composition output from
+            `scenic_to_check_input` (treated as a single path with prob=1.0)
 
         Calls check_with_dfa on each path and returns the weighted sum:
             rho = sum(p_i * rho_i)
             eps = sqrt(sum((p_i * eps_i)^2))   [conservative, assumes independence]
         """
+        # Auto-wrap a flat composition into [(1.0, composition)] so callers
+        # don't need to wrap manually.
+        if paths and not (isinstance(paths[0], tuple) and len(paths[0]) == 2
+                          and isinstance(paths[0][0], (int, float))):
+            paths = [(1.0, list(paths))]
         rho = 0.0
         variance_sum = 0.0
         for path_prob, composition in paths:

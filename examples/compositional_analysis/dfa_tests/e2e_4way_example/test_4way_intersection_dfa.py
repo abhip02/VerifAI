@@ -49,7 +49,7 @@ from verifai.generate_graph_traces import (
 
 
 SCENIC_FILE = HERE / "4_way_intersection_scenic" / "composed.scenic"
-SAVE_DIR    = HERE / "storage_4way_intersection"
+SAVE_DIR    = HERE / "storage"
 N_TRACES    = 100    # MetaDrive traces per primitive (parallel, ~3 procs)
 MONO_N      = 100    # MetaDrive traces of MonolithicMain (single-process)
 MAX_STEPS   = 40
@@ -142,6 +142,11 @@ def generate_monolithic_traces(scenic_file, save_dir, n, paths,
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
+    # Accept either flat List[CompositionStep] or wrapped List[(prob, composition)].
+    if paths and not (isinstance(paths[0], tuple) and len(paths[0]) == 2
+                      and isinstance(paths[0][0], (int, float))):
+        paths = [(1.0, list(paths))]
+
     # Sample which primitive each trace will exercise.
     assignments = {}  # primitive -> list[trace_id]
     for trace_id in range(n):
@@ -209,24 +214,34 @@ def generate_monolithic_traces(scenic_file, save_dir, n, paths,
     return str(out_csv)
 
 
-def main():
-    # 1. Scenic -> partner dict -> paths.
-    graph   = analyze_scenic_composition(SCENIC_FILE)
-    partner = build_partner_format(graph)
-    paths   = scenic_to_check_input(partner)
-    primitives = get_primitives(paths)
+def main(reuse_traces=False):
+    # 1. Scenic -> partner dict -> composition.
+    graph       = analyze_scenic_composition(SCENIC_FILE)
+    partner     = build_partner_format(graph)
+    paths       = scenic_to_check_input(partner)
+    primitives  = get_primitives(paths)
     print(f"Source     : {SCENIC_FILE}")
     print(f"Primitives : {sorted(primitives)}")
     print(f"Paths      : {paths}")
 
     # 2. MetaDrive traces for each primitive.
-    logs = generate_graph_traces(
-        source=str(SCENIC_FILE),
-        n=N_TRACES,
-        save_dir=str(SAVE_DIR),
-        backend="metadrive",
-        max_steps=MAX_STEPS,
-    )
+    if reuse_traces:
+        logs = {}
+        for primitive in primitives:
+            csv_path = SAVE_DIR / primitive / "traces.csv"
+            if csv_path.exists():
+                logs[primitive] = str(csv_path)
+                print(f"[reuse] {primitive}: {csv_path}")
+            else:
+                print(f"[ERROR] No existing traces for primitive {primitive} at {csv_path}")
+    else:
+        logs = generate_graph_traces(
+            source=str(SCENIC_FILE),
+            n=N_TRACES,
+            save_dir=str(SAVE_DIR),
+            backend="metadrive",
+            max_steps=MAX_STEPS,
+        )
     missing = primitives - logs.keys()
     if missing:
         raise RuntimeError(
@@ -242,21 +257,24 @@ def main():
         print(f"  {name:11s} rho = {rho:.4f}  ({csv_path})")
 
     engine = CompositionalAnalysisEngine(ScenarioBase(logs))
-    rho_comp, eps_comp = engine.check_with_dfa_scenic(
+    rho_comp, eps_comp = engine.check_with_dfa(
         paths,
         spec,
         features=["x", "y", "speed"],
         center_feat_idx=[0, 1],
     )
 
-    # 4. Monolithic ground truth: dispatch the branch choice in Python per
-    #    `paths`, then run a fresh MetaDrive simulation of the chosen
-    #    primitive's wrapper for each trace. Mirrors `Main`'s semantics
-    #    (each scene picks one branch and runs only that branch).
-    mono_csv = generate_monolithic_traces(
-        SCENIC_FILE, SAVE_DIR / "monolithic", MONO_N, paths,
-        max_steps=MAX_STEPS,
-    )
+    # 4. Monolithic ground truth.
+    if reuse_traces:
+        mono_csv = str(SAVE_DIR / "monolithic" / "traces.csv")
+        if not Path(mono_csv).exists():
+            raise RuntimeError(f"No existing monolithic traces at {mono_csv}")
+        print(f"[reuse] monolithic: {mono_csv}")
+    else:
+        mono_csv = generate_monolithic_traces(
+            SCENIC_FILE, SAVE_DIR / "monolithic", MONO_N, paths,
+            max_steps=MAX_STEPS,
+        )
     rho_mono = relabel(mono_csv, spec)
     n_mono = pd.read_csv(mono_csv)["trace_id"].nunique()
     eps_mono = hoeffding_eps(n_mono)
@@ -273,4 +291,9 @@ def test_4way_intersection_dfa():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="4-way intersection DFA test")
+    parser.add_argument("--reuse_traces", action="store_true",
+                        help="Skip trace generation and use existing CSVs in SAVE_DIR")
+    args = parser.parse_args()
+    main(reuse_traces=args.reuse_traces)

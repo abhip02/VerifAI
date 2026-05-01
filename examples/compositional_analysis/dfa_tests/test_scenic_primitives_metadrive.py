@@ -29,7 +29,7 @@ from verifai.scenic_parser import scenic_to_check_input
 STOP_THRESHOLD_MS = 3.5
 REQUIRED_WAIT_STEPS = 3
 N_EPISODES = 100
-TRACE_DIR = os.path.join(os.path.dirname(__file__), "dfa_test_traces_scenic_primitives")
+TRACE_DIR = os.path.join(os.path.dirname(__file__), "storage", "scenic_primitives")
 
 FEATURES = ["x", "y", "speed"]
 CENTER_FEAT_IDX = [0, 1]
