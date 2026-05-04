@@ -274,6 +274,37 @@ def make_spec_reach_low_speed():
     )
 
 
+def _make_spec_bounded_total_slow(BUDGET):
+    """SAFETY global counter: total post-warmup slow-step count summed
+    across the whole composition must stay <= BUDGET."""
+    def transition(state, sym):
+        if state == "bad":
+            return "bad"
+        n = int(state[1:])
+        if sym == "slow":
+            n += 1
+            return "bad" if n > BUDGET else f"t{n}"
+        return state
+
+    def label_row(row):
+        if row["step"] < WARMUP_STEPS:
+            return "fast"
+        return "slow" if row["speed"] < STOP_THRESHOLD else "fast"
+
+    return automaton_specification(
+        start="t0",
+        inputs={"slow", "fast"},
+        transition=transition,
+        label=lambda s: s != "bad",
+        labeling_function=label_row,
+    )
+
+
+def make_spec_bounded_slow_160():
+    """BUDGET=160 — ≤4 brake-length segments; essentially never violated."""
+    return _make_spec_bounded_total_slow(160)
+
+
 def make_spec_at_most_one_brake_episode():
     """Non-Markovian counts: at most MAX_BRAKE_EPISODES distinct slow->fast
     transitions allowed (a 'brake episode' = a contiguous slow run that ends
@@ -484,6 +515,7 @@ def main(reuse_traces=False):
         "k_consec_fast"        : make_spec_k_consec_fast(),
         "reach_low_speed"      : make_spec_reach_low_speed(),
         "at_most_one_brake"    : make_spec_at_most_one_brake_episode(),
+        "bounded_slow_160"     : make_spec_bounded_slow_160(),
     }
     engine = CompositionalAnalysisEngine(ScenarioBase(logs))
 

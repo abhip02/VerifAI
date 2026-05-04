@@ -97,9 +97,9 @@ TOTAL_SLOW_BUDGET    = 80     # max post-warmup slow-step count summed across
 # slow symbol. This is the cross-segment state propagation that compositional
 # analysis is designed to exploit.
 
-def make_spec_k_consec_slow():
-    """SAFETY non-Markovian (correct): never have > MAX_CONSEC_SLOW
-    consecutive slow steps post-warmup. Absorbing `bad` reject."""
+def _make_spec_k_consec_slow(K, threshold=STOP_THRESHOLD):
+    """SAFETY non-Markovian: never have > K consecutive slow steps post-warmup.
+    Absorbing `bad` reject."""
     def transition(state, sym):
         if state == "ok_run":
             return "slow_1" if sym == "slow" else "ok_run"
@@ -108,12 +108,12 @@ def make_spec_k_consec_slow():
         idx = int(state.split("_")[1])
         if sym == "fast":
             return "ok_run"
-        return "bad" if idx >= MAX_CONSEC_SLOW else f"slow_{idx + 1}"
+        return "bad" if idx >= K else f"slow_{idx + 1}"
 
     def label_row(row):
         if row["step"] < WARMUP_STEPS:
             return "fast"
-        return "slow" if row["speed"] < STOP_THRESHOLD else "fast"
+        return "slow" if row["speed"] < threshold else "fast"
 
     return automaton_specification(
         start="ok_run",
@@ -124,11 +124,9 @@ def make_spec_k_consec_slow():
     )
 
 
-def make_spec_k_consec_fast():
-    """SAFETY non-Markovian (correct, mirror of k_consec_slow):
-    never have > MAX_CONSEC_FAST consecutive fast steps post-warmup."""
-    K = MAX_CONSEC_FAST
-
+def _make_spec_k_consec_fast(K, threshold=FAST_K_THR):
+    """SAFETY non-Markovian (mirror of k_consec_slow):
+    never have > K consecutive fast steps post-warmup."""
     def transition(state, sym):
         if state == "ok":
             return "fast_1" if sym == "fast" else "ok"
@@ -142,7 +140,7 @@ def make_spec_k_consec_fast():
     def label_row(row):
         if row["step"] < WARMUP_STEPS:
             return "slow"
-        return "fast" if row["speed"] >= FAST_K_THR else "slow"
+        return "fast" if row["speed"] >= threshold else "slow"
 
     return automaton_specification(
         start="ok",
@@ -151,6 +149,35 @@ def make_spec_k_consec_fast():
         label=lambda s: s != "bad",
         labeling_function=label_row,
     )
+
+
+def make_spec_k_consec_slow():
+    return _make_spec_k_consec_slow(MAX_CONSEC_SLOW)
+
+
+def make_spec_k_consec_slow_K2():
+    """K=2 — tighter; even a 3-tick slow run is bad."""
+    return _make_spec_k_consec_slow(2)
+
+
+def make_spec_k_consec_slow_K5():
+    """K=5 — looser; allows brief slowdowns up to 5 ticks."""
+    return _make_spec_k_consec_slow(5)
+
+
+def make_spec_k_consec_fast():
+    return _make_spec_k_consec_fast(MAX_CONSEC_FAST)
+
+
+def make_spec_k_consec_fast_K10():
+    """K=10 — every cruise primitive has ~40 consec fast ticks → both comp
+    and mono should saturate near 0 (any cruise segment violates)."""
+    return _make_spec_k_consec_fast(10)
+
+
+def make_spec_k_consec_fast_K20():
+    """K=20 — same saturation pattern but at a higher bar; still 0/0."""
+    return _make_spec_k_consec_fast(20)
 
 
 def _make_spec_at_most_K_brake_episodes(K):
@@ -196,6 +223,25 @@ def make_spec_at_most_two_brake_episodes():
     return _make_spec_at_most_K_brake_episodes(MAX_BRAKE_EPISODES_2)
 
 
+def make_spec_at_most_three_brake_episodes():
+    """K=3 — looser; at this threshold both comp and mono saturate ~1.0
+    (P(>3 brake episodes in 5 random segments) ≪ 1)."""
+    return _make_spec_at_most_K_brake_episodes(3)
+
+
+def make_spec_at_most_four_brake_episodes():
+    """K=4 — only 5 segments total, so >4 brake episodes is essentially
+    impossible. Both comp and mono should be ~1.0 — trivial agreement,
+    but a useful sanity check that the engine doesn't introduce drift
+    on near-saturated specs."""
+    return _make_spec_at_most_K_brake_episodes(4)
+
+
+def make_spec_at_most_five_brake_episodes():
+    """K=5 — completely trivial (max possible episodes = 5). Sanity check."""
+    return _make_spec_at_most_K_brake_episodes(5)
+
+
 def make_spec_no_rise_then_fall():
     """SAFETY non-Markovian (correct): trace must NEVER complete the pattern
     `rose to HIGH, then dropped to LOW`. Once observed, DFA enters `bad`.
@@ -235,22 +281,10 @@ def make_spec_no_rise_then_fall():
     )
 
 
-def make_spec_bounded_total_slow():
-    """SAFETY global counter (correct): total post-warmup slow-step count
-    summed across the whole composition must stay <= TOTAL_SLOW_BUDGET.
-    Once exceeded, DFA enters `bad`.
-
-    DFA states: t0, t1, ..., t{BUDGET}, bad — encodes accumulated slow count.
-    Per-primitive: BrakeScenario gives ~40 slow ticks; cruise primitives ~0.
-    Per-primitive ρ depends on which q_init the DFA starts from — i.e.,
-    how much budget the previous segment(s) used. The engine evaluates this
-    correctly by iterating over q_init in `_dfa_labels`.
-
-    Compositional: with BUDGET=80, ~2 BrakeScenario segments fit under the
-    budget; ≥3 brakes violate. Mono ρ ≈ P(at most 2 of 5 random segments are
-    Brake) = (3/4)^5 + 5(3/4)^4(1/4) + 10(3/4)^3(1/4)^2 ≈ 0.90."""
-    BUDGET = TOTAL_SLOW_BUDGET
-
+def _make_spec_bounded_total_slow(BUDGET):
+    """SAFETY global counter: total post-warmup slow-step count summed
+    across the whole composition must stay <= BUDGET. Once exceeded,
+    DFA enters `bad`. State space: t0 … t{BUDGET}, bad."""
     def transition(state, sym):
         if state == "bad":
             return "bad"
@@ -272,6 +306,35 @@ def make_spec_bounded_total_slow():
         label=lambda s: s != "bad",
         labeling_function=label_row,
     )
+
+
+def make_spec_bounded_total_slow():
+    """BUDGET=80 — ≤ 2 brake segments fit (mid-range, ~0.90 if uniform)."""
+    return _make_spec_bounded_total_slow(TOTAL_SLOW_BUDGET)
+
+
+def make_spec_bounded_total_slow_120():
+    """BUDGET=120 — ≤ 3 brake segments fit. Looser; both should saturate
+    near 1.0."""
+    return _make_spec_bounded_total_slow(120)
+
+
+def make_spec_bounded_total_slow_160():
+    """BUDGET=160 — ≤ 4 brake segments fit. Essentially never violated;
+    trivial saturation near 1.0."""
+    return _make_spec_bounded_total_slow(160)
+
+
+def make_spec_bounded_total_slow_40():
+    """BUDGET=40 — ≤ 1 brake segment fits. Tighter; P(≤1 brake in 5) ≈ 0.63
+    so this lands mid-range and is a more demanding agreement test."""
+    return _make_spec_bounded_total_slow(40)
+
+
+def make_spec_bounded_total_slow_200():
+    """BUDGET=200 — entire trace's slow ticks fit (max 5 brakes × 40 = 200).
+    Trivially satisfied."""
+    return _make_spec_bounded_total_slow(200)
 
 
 # ---------------------------------------------------------------------------
@@ -360,13 +423,31 @@ def main(reuse_traces=False):
         raise RuntimeError(f"missing primitives: {sorted(missing)}")
 
     # 3. Per-spec evaluation against the shared pool. ALL safety specs.
+    # Mix of K-consec, episode-counter, total-budget, and pattern (no_rise_then_fall)
+    # specs spanning saturated (~0 or ~1) and mid-range expected ρ values.
     specs = {
-        "k_consec_slow"      : make_spec_k_consec_slow(),
-        "k_consec_fast"      : make_spec_k_consec_fast(),
+        # K-consecutive-slow at varied K
+        "k_consec_slow_K2"   : make_spec_k_consec_slow_K2(),
+        "k_consec_slow_K3"   : make_spec_k_consec_slow(),       # K=3
+        "k_consec_slow_K5"   : make_spec_k_consec_slow_K5(),
+        # K-consecutive-fast at varied K
+        "k_consec_fast_K3"   : make_spec_k_consec_fast(),       # K=3
+        "k_consec_fast_K10"  : make_spec_k_consec_fast_K10(),
+        "k_consec_fast_K20"  : make_spec_k_consec_fast_K20(),
+        # Episode-counter at varied K
         "at_most_one_brake"  : make_spec_at_most_one_brake_episode(),
         "at_most_two_brake"  : make_spec_at_most_two_brake_episodes(),
+        "at_most_three_brake": make_spec_at_most_three_brake_episodes(),
+        "at_most_four_brake" : make_spec_at_most_four_brake_episodes(),
+        "at_most_five_brake" : make_spec_at_most_five_brake_episodes(),
+        # Global slow-step budget at varied BUDGET
+        "bounded_slow_40"    : make_spec_bounded_total_slow_40(),
+        "bounded_slow_80"    : make_spec_bounded_total_slow(),  # BUDGET=80
+        "bounded_slow_120"   : make_spec_bounded_total_slow_120(),
+        "bounded_slow_160"   : make_spec_bounded_total_slow_160(),
+        "bounded_slow_200"   : make_spec_bounded_total_slow_200(),
+        # Cross-segment pattern
         "no_rise_then_fall"  : make_spec_no_rise_then_fall(),
-        "bounded_total_slow" : make_spec_bounded_total_slow(),
     }
     engine = CompositionalAnalysisEngine(ScenarioBase(logs))
 

@@ -147,6 +147,19 @@ scenario Main():
         }
 
 
+# ShuffleMain: approach the intersection, then run ALL THREE maneuvers in a
+# random ORDER (do shuffle = random permutation, not random pick).
+# Engine averages rho over all 3! = 6 permutations.
+scenario ShuffleMain():
+    compose:
+        do Subscenario1()
+        do shuffle {
+            Subscenario2L(): 1,
+            Subscenario2R(): 1,
+            Subscenario2S(): 1,
+        }
+
+
 # --- Monolithic entrypoint ---
 # Real continuous-drive analogue of `Main`: one MetaDrive simulation per
 # trace, ego runs Subscenario1's approach trajectory immediately followed
@@ -189,6 +202,46 @@ scenario MonolithicMain():
         speed2 = Range(2, 8)   # ≡ UBER_SPEED for Sub2's per-primitive scene
         ego = new Car following roadDirection from uberSpawnPoint for DISTANCE_TO_INTERSECTION,
                 with behavior MonolithicEgoBehavior(approach_traj, chosen_full, speed1, speed2)
+    compose:
+        while True:
+            wait
+
+
+# --- Monolithic shuffle counterpart ---
+# Chains Sub1 + ALL THREE Sub2 variants sequentially in one simulation.
+# The permutation order is sampled uniformly over all 3! = 6 orderings,
+# mirroring the compositional shuffle operator which averages rho over all
+# permutations. Each segment gets an independent target speed to match the
+# per-primitive independence assumption (same rationale as MonolithicMain).
+# Segments 3-4 follow trajectories that begin at the intersection approach
+# point even though the ego is physically elsewhere after segment 2; the
+# spec only observes speed, so position inconsistency is acceptable here.
+
+behavior MonolithicShuffleBehavior(approach, perm, s1, s2, s3, s4):
+    do FollowTrajectoryBehavior(trajectory=approach, target_speed=s1)
+    do FollowTrajectoryBehavior(trajectory=perm[0], target_speed=s2)
+    do FollowTrajectoryBehavior(trajectory=perm[1], target_speed=s3)
+    do FollowTrajectoryBehavior(trajectory=perm[2], target_speed=s4)
+    while True:
+        wait
+
+
+scenario MonolithicShuffle():
+    setup:
+        perm = Uniform(
+            (left_full, right_full, straight_full),
+            (left_full, straight_full, right_full),
+            (right_full, left_full, straight_full),
+            (right_full, straight_full, left_full),
+            (straight_full, left_full, right_full),
+            (straight_full, right_full, left_full),
+        )
+        s1 = Range(2, 8)
+        s2 = Range(2, 8)
+        s3 = Range(2, 8)
+        s4 = Range(2, 8)
+        ego = new Car following roadDirection from uberSpawnPoint for DISTANCE_TO_INTERSECTION,
+                with behavior MonolithicShuffleBehavior(approach_traj, perm, s1, s2, s3, s4)
     compose:
         while True:
             wait
