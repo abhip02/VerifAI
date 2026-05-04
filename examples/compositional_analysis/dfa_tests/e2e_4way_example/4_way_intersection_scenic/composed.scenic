@@ -12,8 +12,8 @@
 # accepts and n_brake in {3,4,5} rejects, so each primitive's rho is graded
 # (~0.4 in expectation, finite-N noise around that).
 
-param map = localPath('../../../../tests/scenic/scenic_tests/cases_realistic/CARLA/Town07.xodr')
-param carla_map = localPath('../../../../tests/scenic/scenic_tests/cases_realistic/CARLA/Town07.xodr')
+param map = localPath('../../../../../tests/scenic/scenic_tests/cases_realistic/CARLA/Town07.xodr')
+param carla_map = localPath('../../../../../tests/scenic/scenic_tests/cases_realistic/CARLA/Town07.xodr')
 param timestep = 0.1
 param use2DMap = True
 param render = 0

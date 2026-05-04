@@ -23,7 +23,7 @@ import pandas as pd
 import pytest
 
 from verifai.monitor import automaton_specification
-from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine
+from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine, relabel_traces
 from verifai.scenic_parser import scenic_to_check_input
 
 STOP_THRESHOLD_MS = 3.5
@@ -82,13 +82,6 @@ def generate(scenario, seed=0):
     return os.path.join(TRACE_DIR, scenario, "traces.csv")
 
 
-def relabel(csv_path, spec):
-    df = pd.read_csv(csv_path).sort_values("step")
-    labels = {tid: spec.evaluate(grp.to_dict("records")) > 0
-              for tid, grp in df.groupby("trace_id")}
-    df["label"] = df["trace_id"].map(labels)
-    df.to_csv(csv_path, index=False)
-
 
 def rho_of(csv_path):
     return pd.read_csv(csv_path).groupby("trace_id")["label"].last().astype(float).mean()
@@ -129,7 +122,7 @@ def setup():
     print()
     for name, (scenario_str, seed) in scenarios.items():
         csv = generate(scenario_str, seed)
-        relabel(csv, spec)
+        relabel_traces(csv, spec)
         paths[name] = csv
         print(f"  {name:3s}: rho={rho_of(csv):.4f}")
 

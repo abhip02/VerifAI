@@ -17,8 +17,8 @@
 # (Avoid `for i in range(N): do choose {...}` — Scenic's parser collapses it
 # into a single parallel-style step, not 5 sequential decision points.)
 
-param map = localPath('../../../../tests/scenic/scenic_tests/cases_realistic/CARLA/Town07.xodr')
-param carla_map = localPath('../../../../tests/scenic/scenic_tests/cases_realistic/CARLA/Town07.xodr')
+param map = localPath('../../../../../tests/scenic/scenic_tests/cases_realistic/CARLA/Town07.xodr')
+param carla_map = localPath('../../../../../tests/scenic/scenic_tests/cases_realistic/CARLA/Town07.xodr')
 param timestep = 0.1
 param use2DMap = True
 param render = 0
@@ -46,33 +46,55 @@ uberSpawnPoint = startLane.centerline[-1]
 
 # --- 4 leaf behaviors ---
 # Three cruise variants (straight/left/right) + a Brake primitive.
-# Mixing Brake into the choose makes the trace pool span both rising and
-# falling speed profiles, so non-Markovian specs like rise_then_fall and
-# k_consec_slow can produce graded rhos rather than 0/1.
+# Each behavior begins with a cruise PREWARM of variable length: a random
+# number of cruise ticks at high throttle to ramp the ego up to a varied
+# starting speed BEFORE the primitive's actual actions begin. The test
+# trims `PREWARM_TRIM` rows from each per-primitive CSV after generation,
+# so the recorded "row 0" represents a warm state with varied speed across
+# traces, not always rest. This widens the boundary distribution that the
+# compositional engine's KDE re-weighting needs at segment boundaries.
 
 behavior GoStraight():
+    prewarm  = Uniform(0, 5, 10, 15, 25, 35)
+    prewarm_throttle = Range(0.4, 0.8)
     throttle = Range(0.3, 0.6)
+    for i in range(prewarm):
+        take SetThrottleAction(prewarm_throttle), SetBrakeAction(0), SetSteerAction(0)
     while True:
         take SetThrottleAction(throttle), SetBrakeAction(0), SetSteerAction(0)
 
 
 behavior TurnLeft():
+    prewarm  = Uniform(0, 5, 10, 15, 25, 35)
+    prewarm_throttle = Range(0.4, 0.8)
     throttle = Range(0.3, 0.6)
     steer    = Range(-0.4, -0.2)   # negative = left
+    for i in range(prewarm):
+        take SetThrottleAction(prewarm_throttle), SetBrakeAction(0), SetSteerAction(0)
     while True:
         take SetThrottleAction(throttle), SetBrakeAction(0), SetSteerAction(steer)
 
 
 behavior TurnRight():
+    prewarm  = Uniform(0, 5, 10, 15, 25, 35)
+    prewarm_throttle = Range(0.4, 0.8)
     throttle = Range(0.3, 0.6)
     steer    = Range(0.2, 0.4)     # positive = right
+    for i in range(prewarm):
+        take SetThrottleAction(prewarm_throttle), SetBrakeAction(0), SetSteerAction(0)
     while True:
         take SetThrottleAction(throttle), SetBrakeAction(0), SetSteerAction(steer)
 
 
 behavior Brake():
-    # Decelerate to (near) zero, then idle. Brake force varies per scene.
+    # Cruise prewarm so the brake starts from a varied non-zero speed
+    # (matching what continuous-drive segments would see — Brake in the
+    # middle of a trace doesn't start from rest).
+    prewarm     = Uniform(0, 5, 10, 15, 25, 35)
+    prewarm_throttle = Range(0.4, 0.8)
     brake_force = Range(0.5, 1.0)
+    for i in range(prewarm):
+        take SetThrottleAction(prewarm_throttle), SetBrakeAction(0), SetSteerAction(0)
     while True:
         take SetThrottleAction(0), SetBrakeAction(brake_force), SetSteerAction(0)
 

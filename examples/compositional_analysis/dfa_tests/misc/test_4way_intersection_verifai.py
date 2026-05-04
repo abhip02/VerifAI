@@ -39,7 +39,7 @@ from verifai.samplers import ScenicSampler
 from verifai.falsifier import generic_falsifier
 from verifai.scenic_server import ScenicServer
 from verifai.monitor import specification_monitor, automaton_specification
-from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine
+from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine, relabel_traces
 
 
 PRIMITIVES = ["GoStraight", "TurnLeft", "TurnRight"]
@@ -80,14 +80,6 @@ def make_spec():
         labeling_function=label_row,
     )
 
-
-def relabel(csv_path, spec):
-    df = pd.read_csv(csv_path).sort_values("step")
-    labels = {tid: spec.evaluate(grp.to_dict("records")) > 0
-              for tid, grp in df.groupby("trace_id")}
-    df["label"] = df["trace_id"].map(labels)
-    df.to_csv(csv_path, index=False)
-    return df.groupby("trace_id")["label"].last().astype(float).mean()
 
 
 def hoeffding_eps(n, delta=0.05):
@@ -267,7 +259,7 @@ def main():
     spec = make_spec()
     print("\n=== Per-primitive rho (after DFA relabeling) ===")
     for name in PRIMITIVES:
-        rho = relabel(logs[name], spec)
+        rho = relabel_traces(logs[name], spec)
         print(f"  {name:11s} rho = {rho:.4f}  ({logs[name]})")
 
     # 3. Compositional analysis (same composition as test_4way_intersection_dfa).
@@ -282,7 +274,7 @@ def main():
     mono_csv = generate_monolithic_traces_verifai(
         paths, SAVE_DIR / "monolithic", MONO_N,
     )
-    rho_mono = relabel(mono_csv, spec)
+    rho_mono = relabel_traces(mono_csv, spec)
     n_mono = pd.read_csv(mono_csv)["trace_id"].nunique()
     eps_mono = hoeffding_eps(n_mono)
 

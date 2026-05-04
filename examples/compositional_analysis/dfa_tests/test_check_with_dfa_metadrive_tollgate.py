@@ -21,7 +21,7 @@ import pandas as pd
 import pytest
 
 from verifai.monitor import automaton_specification
-from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine
+from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine, relabel_traces
 
 STOP_THRESHOLD_MS = 3.5
 REQUIRED_WAIT_STEPS = 3
@@ -59,13 +59,6 @@ def generate(scenario, seed=0):
     return os.path.join(TRACE_DIR, scenario, "traces.csv")
 
 
-def relabel(csv_path, spec):
-    df = pd.read_csv(csv_path).sort_values("step")
-    labels = {tid: spec.evaluate(grp.to_dict("records")) > 0
-              for tid, grp in df.groupby("trace_id")}
-    df["label"] = df["trace_id"].map(labels)
-    df.to_csv(csv_path, index=False)
-
 
 @pytest.fixture(scope="module")
 def setup():
@@ -73,7 +66,7 @@ def setup():
     paths = {}
     for name, seed in [("S", 0), ("X", 1), ("SX", 2)]:
         csv = generate(name, seed)
-        relabel(csv, spec)
+        relabel_traces(csv, spec)
         paths[name] = csv
         rho = pd.read_csv(csv).groupby("trace_id")["label"].last().astype(float).mean()
         print(f"  {name}: rho={rho:.4f}")

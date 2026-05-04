@@ -35,7 +35,7 @@ if SRC.is_dir() and str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from verifai.monitor import automaton_specification
-from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine
+from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine, relabel_traces
 from verifai.scenic_composition_analysis import (
     analyze_scenic_composition,
     build_partner_format,
@@ -87,17 +87,6 @@ def make_spec():
         label=lambda s: s != "bad",
         labeling_function=label_row,
     )
-
-
-def relabel(csv_path, spec):
-    df = pd.read_csv(csv_path).sort_values("step")
-    labels = {
-        tid: spec.evaluate(grp.to_dict("records")) > 0
-        for tid, grp in df.groupby("trace_id")
-    }
-    df["label"] = df["trace_id"].map(labels)
-    df.to_csv(csv_path, index=False)
-    return df.groupby("trace_id")["label"].last().astype(float).mean()
 
 
 def hoeffding_eps(n, delta=0.05):
@@ -253,7 +242,7 @@ def main(reuse_traces=False):
     spec = make_spec()
     print("\n=== Per-primitive rho (after DFA relabeling) ===")
     for name, csv_path in sorted(logs.items()):
-        rho = relabel(csv_path, spec)
+        rho = relabel_traces(csv_path, spec)
         print(f"  {name:11s} rho = {rho:.4f}  ({csv_path})")
 
     engine = CompositionalAnalysisEngine(ScenarioBase(logs))
@@ -275,7 +264,7 @@ def main(reuse_traces=False):
             SCENIC_FILE, SAVE_DIR / "monolithic", MONO_N, paths,
             max_steps=MAX_STEPS,
         )
-    rho_mono = relabel(mono_csv, spec)
+    rho_mono = relabel_traces(mono_csv, spec)
     n_mono = pd.read_csv(mono_csv)["trace_id"].nunique()
     eps_mono = hoeffding_eps(n_mono)
 

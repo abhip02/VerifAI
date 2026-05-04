@@ -4,8 +4,8 @@
 # and driven by generic_falsifier + ScenicServer. record directives expose the
 # ego trajectory to the test's spec_monitor for trace-CSV construction.
 
-param map = localPath('../../../../tests/scenic/scenic_tests/cases_realistic/CARLA/Town07.xodr')
-param carla_map = localPath('../../../../tests/scenic/scenic_tests/cases_realistic/CARLA/Town07.xodr')
+param map = localPath('../../../../../tests/scenic/scenic_tests/cases_realistic/CARLA/Town07.xodr')
+param carla_map = localPath('../../../../../tests/scenic/scenic_tests/cases_realistic/CARLA/Town07.xodr')
 param timestep = 0.1
 param use2DMap = True
 param render = 0

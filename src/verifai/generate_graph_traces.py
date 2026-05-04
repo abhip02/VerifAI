@@ -806,6 +806,174 @@ def load_existing_logs(
     return logs
 
 
+def _worker_generate_scenario(job: Mapping[str, object]) -> Tuple[str, str]:
+    """Subprocess worker for generate_graph_scenarios — compiles a single
+    self-contained `scenario X():` block directly via scenarioFromFile and
+    runs `n` traces of it. Bypasses the wrapper-builder that
+    generate_graph_traces uses, which is incompatible with leaf scenarios
+    that create their own ego in setup (the wrapper's `do X()` runs setup
+    at sim time, but MetaDrive needs >=1 Scenic object at scene creation;
+    also the wrapper's idle ego shadows the leaf's real ego in
+    `_trajectory_rows`)."""
+    scenic = _load_scenic()
+
+    scenic_file = str(job["scenic_file"])
+    scenario_name = str(job["scenario_name"])
+    save_dir = Path(str(job["save_dir"]))
+    n = int(job["n"])
+    max_steps = job.get("max_steps")
+    mode2d = bool(job.get("mode2d", True))
+    model = job.get("model") or DEFAULT_SCENIC_MODEL
+    max_iterations = int(job.get("max_iterations", 2000))
+    position = int(job.get("position", 0))
+
+    save_dir = save_dir / scenario_name
+    save_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = save_dir / "traces.csv"
+
+    sc = scenic.scenarioFromFile(
+        scenic_file,
+        scenario=scenario_name,
+        mode2D=mode2d,
+        model=model,
+    )
+    sim = sc.getSimulator()
+
+    try:
+        from tqdm import tqdm
+        bar = tqdm(total=n, desc=f"{scenario_name:<18s}", unit="trace",
+                   position=position, leave=True)
+    except ImportError:
+        bar = None
+
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(
+            f,
+            fieldnames=["trace_id", "step", "x", "y", "heading", "speed",
+                        "action", "reward", "label"],
+        )
+        writer.writeheader()
+        trace_id = 0
+        attempts = 0
+        max_attempts = max(1000, n * 20)
+        while trace_id < n and attempts < max_attempts:
+            attempts += 1
+            try:
+                scene, _ = sc.generate(maxIterations=max_iterations,
+                                       verbosity=0)
+                simulation = sim.simulate(scene, maxSteps=max_steps,
+                                          verbosity=0, maxIterations=1)
+            except Exception as exc:
+                if bar is not None:
+                    bar.write(f"[{scenario_name}] attempt {attempts} failed: {exc}")
+                continue
+            if simulation is None:
+                continue
+            for row in _trajectory_rows(simulation, trace_id):
+                writer.writerow(row)
+            f.flush()
+            if hasattr(simulation, "destroy"):
+                try:
+                    simulation.destroy()
+                except Exception:
+                    pass
+            trace_id += 1
+            if bar is not None:
+                bar.update(1)
+
+    if bar is not None:
+        bar.close()
+    return scenario_name, str(csv_path)
+
+
+def generate_graph_scenarios(
+    source: Union[str, Path],
+    primitives: Sequence[str],
+    *,
+    n: Union[int, Mapping[str, int]] = 30,
+    save_dir: Union[str, Path] = "storage/graph_scenarios",
+    max_steps: Union[int, Mapping[str, int], None] = None,
+    model: Optional[str] = None,
+    backend: Optional[str] = None,
+    mode2d: bool = True,
+    max_iterations: int = 2000,
+) -> Dict[str, str]:
+    """Per-primitive trace generation for SELF-CONTAINED scenario primitives.
+
+    Companion to `generate_graph_traces` for the case where each leaf primitive
+    is its own `scenario X():` block whose setup creates its own ego (rather
+    than a behavior attached to a Main-owned ego). Each primitive is compiled
+    directly via `scenic.scenarioFromFile(scenario=name)` and run in its own
+    subprocess; one CSV per primitive at `{save_dir}/{name}/traces.csv`.
+
+    Use this when `generate_graph_traces` would build a wrapper of the form
+    `GraphTraceEntry_X(): setup: ego = new Car; compose: do X()` — that
+    pattern double-egos with self-contained leaf scenarios (the wrapper's
+    idle ego shadows the leaf's real ego in `_trajectory_rows`), and the
+    leaf's setup-at-sim-time fails MetaDrive's "requires >=1 Scenic object
+    at scene creation" check.
+
+    Parameters
+    ----------
+    source : path to the Scenic file declaring the leaf scenarios.
+    primitives : list of leaf scenario names to generate. Caller is expected
+        to have parsed `Main` (e.g. via `parse_scenic_spec`) to determine
+        which leaves are referenced. Pass a single name to generate one
+        scenario (e.g. a monolithic counterpart).
+    n : int OR `{scenario_name: int}` — traces per leaf. Use a dict for
+        per-leaf overrides; an int applies to all.
+    save_dir : root output directory. Per-leaf CSVs go to
+        `{save_dir}/{scenario_name}/traces.csv`.
+    max_steps : int OR `{scenario_name: int}` OR None — sim ticks per trace.
+        Use a dict when leaves need different lengths (e.g. some have a
+        prewarm prefix that gets trimmed afterward and need extra raw ticks
+        to compensate). None defers to the simulator default.
+    model, backend : Scenic model / backend name. If both unset, the
+        backend is sniffed from the source's `model ...` directive.
+    mode2d, max_iterations : passed through to `scenarioFromFile` /
+        `scenario.generate`.
+
+    Returns `{scenario_name: csv_path}`. Each worker shows its own tqdm bar
+    pinned to its own line via `position=index`.
+    """
+    source_text = (
+        Path(source).read_text(encoding="utf-8") if Path(source).exists() else ""
+    )
+    _backend_name, scenic_model = resolve_backend(backend, model, source_text)
+
+    primitives = list(primitives)
+    if not primitives:
+        return {}
+
+    def _resolve(spec, name):
+        if isinstance(spec, Mapping):
+            return spec.get(name)
+        return spec
+
+    args_list = [
+        {
+            "scenic_file": str(source),
+            "scenario_name": name,
+            "save_dir": str(save_dir),
+            "n": _resolve(n, name),
+            "max_steps": _resolve(max_steps, name),
+            "mode2d": mode2d,
+            "model": scenic_model,
+            "max_iterations": max_iterations,
+            "position": idx,
+        }
+        for idx, name in enumerate(primitives)
+    ]
+
+    with mp.Pool(processes=len(args_list)) as pool:
+        results = pool.map(_worker_generate_scenario, args_list)
+
+    # tqdm bars leave the cursor below the last bar; print a newline so any
+    # subsequent prints don't overwrite the bottom bar.
+    print()
+    return dict(results)
+
+
 def generate_graph_traces(
     source: Union[str, Path],
     *,

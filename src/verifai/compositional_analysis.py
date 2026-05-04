@@ -15,6 +15,27 @@ from verifai.monitor import automaton_specification
 #   {"X": 0.6, "O": 0.4}  → random choice: X with prob 0.6, O with prob 0.4
 CompositionStep = Union[str, Dict[str, float]]
 
+
+def relabel_traces(csv_path, spec: automaton_specification) -> float:
+    """Relabel a per-primitive trace CSV with the given DFA spec's verdicts.
+
+    Reads `csv_path`, groups by `trace_id`, runs `spec.evaluate(...)` on each
+    trace (which advances the DFA's labeling function over the trace's rows
+    and returns +1.0 if the final state is accepting, -1.0 otherwise),
+    overwrites the `label` column with the boolean verdict, and writes the
+    CSV back in place.
+
+    Returns the empirical per-trace acceptance probability (rho) — i.e. the
+    mean of the per-trace boolean verdicts.
+    """
+    df = pd.read_csv(csv_path).sort_values("step")
+    labels = {tid: spec.evaluate(grp.to_dict("records")) > 0
+              for tid, grp in df.groupby("trace_id")}
+    df["label"] = df["trace_id"].map(labels)
+    df.to_csv(csv_path, index=False)
+    return df.groupby("trace_id")["label"].last().astype(float).mean()
+
+
 @dataclass
 class ScenarioStats:
     rho: float

@@ -5,13 +5,16 @@ Usage:
     python example_random_pipeline.py
 """
 
-import os, sys
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+import os
+import sys
+from pathlib import Path
 
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / ".."))
+
 from verifai.monitor import automaton_specification
-from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine
+from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine, relabel_traces
 from verifai.scenic_parser import scenic_to_check_input, get_primitives
 
 SPEED_LIMIT_MS = 15.0
@@ -50,17 +53,6 @@ def generate(scenario, save_dir, n=N_EPISODES, seed=0):
     return os.path.join(save_dir, scenario, "traces.csv")
 
 
-def relabel(csv_path, spec):
-    df = pd.read_csv(csv_path)
-    df["trace_id"] = df["trace_id"].astype(str)
-    new_labels = {}
-    for tid, group in df.sort_values("step").groupby("trace_id"):
-        traj = group.to_dict("records")
-        word = [spec.L(row) for row in traj]
-        new_labels[tid] = spec._dfa.label(word)
-    df["label"] = df["trace_id"].map(new_labels)
-    df.to_csv(csv_path, index=False)
-
 
 if __name__ == "__main__":
 
@@ -83,15 +75,13 @@ if __name__ == "__main__":
         },
     }
 
-    # 2. Parse into check_with_dfa_scenic input
-    paths = scenic_to_check_input(scenic_spec)
-    print(f"Parsed paths ({len(paths)} path(s)):")
-    for prob, composition in paths:
-        print(f"  prob={prob:.4f}  steps={composition}")
-    # → [(1.0, ["S", {"X": 0.6, "O": 0.4}])]
+    # 2. Parse into check_with_dfa input
+    composition = scenic_to_check_input(scenic_spec)
+    print(f"Parsed composition: {composition}")
+    # → ["S", {"X": 0.6, "O": 0.4}]
 
     # 3. Figure out which primitive scenarios we need traces for
-    primitives = get_primitives(paths)
+    primitives = get_primitives(composition)
     print(f"Primitives to generate: {primitives}")
     # → {"S", "X", "O"}
 
@@ -107,7 +97,7 @@ if __name__ == "__main__":
     # 5. Build DFA spec and relabel all traces
     spec = make_safety_spec()
     for scenario, path in logs.items():
-        relabel(path, spec)
+        relabel_traces(path, spec)
 
     # Print per-scenario stats
     print()
@@ -117,17 +107,18 @@ if __name__ == "__main__":
         rho = df.groupby("trace_id")["label"].last().astype(float).mean()
         print(f"  {scenario}: {n} traces, rho={rho:.4f}")
 
-    # 6. Run check_with_dfa_scenic with the parsed paths
+    # 6. Run check_with_dfa with the parsed composition
     sb = ScenarioBase(logs)
     engine = CompositionalAnalysisEngine(sb)
 
-    rho, eps = engine.check_with_dfa_scenic(
-        paths,
+    rho, eps = engine.check_with_dfa(
+        composition,
         spec,
         features=["x", "y", "heading", "speed"],
         center_feat_idx=[0, 1],
         bw_method="scott",
     )
 
-    print(f"\n  rho = {rho:.4f} +/- {eps:.4f}")
+    print(f"\n  Composition: {composition}")
+    print(f"  rho = {rho:.4f} +/- {eps:.4f}")
     print(f"\nDone. Traces at: {os.path.abspath(SAVE_DIR)}")

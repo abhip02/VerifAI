@@ -521,12 +521,20 @@ def _infer_trace_wrapper_source(
         ]
         compose_lines = ["        while True:", "            wait"]
     else:
-        # Scenario primitives: use ancestor setup when available
+        # Scenario primitives:
+        # - If ancestor setup is available, use it (parent scenario provides
+        #   shared state like ego).
+        # - Otherwise, emit a no-op (`pass`) and let the scenario primitive's
+        #   own setup create the ego. Earlier versions injected a default
+        #   `ego = new Car` here, but that produces a *second* ego that
+        #   collides with any ego the scenario creates in its own setup —
+        #   `_trajectory_rows` then captures the wrapper's idle ego instead
+        #   of the simulated one. Self-contained scenarios must create their
+        #   own ego.
         if ancestor_setup_lines:
             setup_lines = list(ancestor_setup_lines)
         else:
-            default_placement = "" if is_driving_model else " at 0 @ 0"
-            setup_lines = [f"        ego = new {ego_class}{default_placement}"]
+            setup_lines = ["        pass"]
         compose_lines = [f"        do {primitive_name}()"]
 
     wrapper_lines: List[str] = []
