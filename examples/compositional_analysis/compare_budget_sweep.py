@@ -1029,24 +1029,25 @@ if __name__ == "__main__":
     SCENIC_FILE = str(
         Path(
             "examples/compositional_analysis/dfa_tests/e2e_4way_example/"
-            "4_way_intersection_scenic/composed_wander.scenic"
+            "4_way_intersection_scenic/wander_scenarios.scenic"
         ).resolve()
     )
-    SAVE_DIR = Path("storage/scenic_budget_sweep_wander")
+    SAVE_DIR = Path("storage/scenic_budget_sweep_wander_scenarios")
     MAX_BUDGET = 1800.0  # seconds per method (mono + comp run sequentially)
     SNAPSHOT_EVERY = 30.0  # checkpoint cadence -> 60 points per method
     COMPOSITE_NAME = "Main"
     MONOLITHIC_NAME = "MonolithicWander"
-    MAX_STEPS_PRIMITIVE = 75  # matches test_4way_intersection_wander.py
-    MAX_STEPS_MONO = 375  # 5 * MAX_STEPS_PRIMITIVE
+    MAX_STEPS_PRIMITIVE = 75  # matches test_4way_intersection_wander_scenarios.py
+    MAX_STEPS_MONO = 200  # 5 * (MAX_STEPS_PRIMITIVE - PREWARM_TRIM) = 5 * 40
     MAX_STEPS_OVERRIDES = {}  # all primitives use MAX_STEPS_PRIMITIVE
     PREWARM_TRIM_OVERRIDES = {
-        "GoStraight": 35,
-        "TurnLeft": 35,
-        "TurnRight": 35,
+        "BrakeScenario": 35,
+        "GoStraightScenario": 35,
+        "TurnLeftScenario": 35,
+        "TurnRightScenario": 35,
     }
-    FEATURES = ["x", "y", "speed"]
-    CENTER_FEAT_IDX = [0, 1]
+    FEATURES = ["speed"]
+    CENTER_FEAT_IDX = []
     SPEC_MODULE_PATH = str(
         Path(__file__).resolve().parent / "specs" / "at_most_one_brake.py"
     )
