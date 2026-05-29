@@ -127,3 +127,6 @@ dmypy.json
 uv.lock
 
 **/storage/
+
+# Weights & Biases local run logs
+wandb/

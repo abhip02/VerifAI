@@ -19,12 +19,19 @@ Outputs:
   - ``plots/throughput.png``          — completed traces vs. checkpoint
   - ``plots/speedup_vs_budget.png``   — eps_mono / eps_comp at matched T
 
-DFA spec: pass ``--spec_module path/to/spec.py`` exposing ``make_spec()``.
-Default is a tollgate-style safety spec (speed never exceeds MAX_SPEED
-post-warmup), matching the e2e_4way test.
+The DFA spec (``CONFIG["spec_module"]``) exposes ``make_spec()`` and works for
+both markovian and non-markovian DFAs — the compositional engine tracks DFA
+state across primitive segments, the monolithic side evaluates the whole
+trace (see the note in ``default_spec`` on absolute-step labeling).
+
+There is no CLI. The ``EXPERIMENTS`` list at the top of this file defines the
+configs (each with its own scenario, monolithic counterpart, and DFA spec); the
+script runs them one after another into ``storage/budget_sweep/<name>/``. Two
+module-level toggles, ``USE_WANDB`` and ``REUSE_RESULTS``, are the only switches.
+
+    python compare_budget_sweep.py          # run every experiment in EXPERIMENTS
 """
 
-import argparse
 import csv
 import importlib.util
 import multiprocessing as mp
@@ -67,6 +74,7 @@ FIELDS = [
     "rho",
     "eps",
     "n_traces",
+    "n_full_traces",
     "n_traces_breakdown",
     "graph_build_s",
     "status",
@@ -76,6 +84,160 @@ FIELDS = [
 WARMUP_STEPS = 25
 DEFAULT_MAX_SPEED = 5.5
 HOEFFDING_DELTA = 0.05
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+# ----------------------------------------------------------------------------
+# Configuration
+# ----------------------------------------------------------------------------
+#
+# No CLI. The sweep runs every entry in EXPERIMENTS, one after another, writing
+# each to storage/budget_sweep/<name>/. To add or change an experiment, edit the
+# list below. Each entry is (name, config); config["spec"] is a zero-arg factory
+# returning an automaton_specification (so each experiment picks its own DFA).
+#
+# The two module-level toggles below are the only run-mode switches.
+
+USE_WANDB = True  # push plots + results CSV to Weights & Biases
+REUSE_RESULTS = False  # skip simulation; just replot from existing results.csv
+WANDB_PROJECT = "verifai-compositional-analysis"
+
+SCENIC_DIR = (
+    REPO_ROOT
+    / "examples/compositional_analysis/dfa_tests/e2e_4way_example"
+    / "4_way_intersection_scenic"
+)
+SPEC_AT_MOST_ONE_BRAKE = (
+    Path(__file__).resolve().parent / "specs" / "at_most_one_brake.py"
+)
+
+
+def _safety_spec(max_speed):
+    """Factory for the tollgate safety DFA (speed never exceeds max_speed)."""
+    return lambda: default_spec(max_speed=max_speed)
+
+
+# Defaults shared by every experiment; each entry overrides what it needs.
+_BASE = {
+    "max_budget": 1800.0,  # seconds per method (mono + comp run in turn)
+    "snapshot_every": 30.0,  # checkpoint cadence
+    "features": ["speed"],
+    "center_feat_idx": [],
+    "max_steps_overrides": {},  # {primitive: max_steps}
+    "prewarm_trim": {},  # {primitive: rows to drop from each trace}
+}
+
+# Shared config for the N=5 wander-over-scenarios setup; each experiment below
+# reuses it under a different DFA spec.
+# (from test_4way_intersection_wander_scenarios.py)
+_WANDER_SCEN = {
+    **_BASE,
+    "scenic_file": str(SCENIC_DIR / "wander_scenarios.scenic"),
+    "composite_name": "Main",
+    "monolithic_name": "MonolithicWander",
+    "max_steps_primitive": 75,
+    "max_steps_mono": 200,
+    "prewarm_trim": {
+        p: 35
+        for p in (
+            "BrakeScenario",
+            "GoStraightScenario",
+            "TurnLeftScenario",
+            "TurnRightScenario",
+        )
+    },
+}
+
+EXPERIMENTS = [
+    # --- wander_scenarios under several specs (1 markovian + 3 non-markovian) ---
+    (
+        "wander_at_most_one_brake",
+        {**_WANDER_SCEN, "spec": lambda: load_spec(str(SPEC_AT_MOST_ONE_BRAKE))},
+    ),  # 5-state
+    (
+        "wander_at_most_two_brake",
+        {**_WANDER_SCEN, "spec": lambda: spec_at_most_k_brake(2)},
+    ),  # 7-state
+    (
+        "wander_k_consec_slow_K2",
+        {**_WANDER_SCEN, "spec": lambda: spec_k_consec_slow(2)},
+    ),  # 4-state
+    (
+        "wander_k_consec_fast_K10",
+        {**_WANDER_SCEN, "spec": lambda: spec_k_consec_fast(10)},
+    ),  # 12-state
+    # N=5 wander over bare behaviors, safety DFA. (test_4way_intersection_wander.py)
+    (
+        "composed_wander",
+        {
+            **_BASE,
+            "scenic_file": str(SCENIC_DIR / "composed_wander.scenic"),
+            "composite_name": "Main",
+            "monolithic_name": "MonolithicWander",
+            "spec": _safety_spec(5.5),
+            "max_steps_primitive": 75,
+            "max_steps_mono": 375,
+            "prewarm_trim": {
+                p: 35 for p in ("Brake", "GoStraight", "TurnLeft", "TurnRight")
+            },
+        },
+    ),
+    # 2-step intersection composition, safety DFA. Sub2* carry a cruise prewarm
+    # and need extra raw ticks. (test_4way_intersection_scenarios.py)
+    (
+        "composed_scenarios",
+        {
+            **_BASE,
+            "scenic_file": str(SCENIC_DIR / "composed_scenarios.scenic"),
+            "composite_name": "Main",
+            "monolithic_name": "MonolithicMain",
+            "spec": _safety_spec(5.5),
+            "max_steps_primitive": 85,
+            "max_steps_mono": 170,
+            "max_steps_overrides": {
+                p: 110 for p in ("Subscenario2L", "Subscenario2R", "Subscenario2S")
+            },
+            "prewarm_trim": {
+                p: 25 for p in ("Subscenario2L", "Subscenario2R", "Subscenario2S")
+            },
+        },
+    ),
+    # 10-step traversal (approach + turn) chain, safety DFA.
+    # (test_4way_intersection_traversal_wander.py)
+    (
+        "traversal_wander",
+        {
+            **_BASE,
+            "scenic_file": str(SCENIC_DIR / "traversal_wander.scenic"),
+            "composite_name": "Main",
+            "monolithic_name": "Monolithic5",
+            "spec": _safety_spec(7.5),
+            "max_steps_primitive": 100,
+            "max_steps_mono": 1000,
+        },
+    ),
+]
+
+
+def load_env_file(env_path):
+    """Populate ``os.environ`` from a simple KEY=VALUE ``.env`` file.
+
+    Manual parser so we don't depend on python-dotenv. Existing environment
+    variables are never overwritten. Missing file is a no-op.
+    """
+    env_path = Path(env_path)
+    if not env_path.exists():
+        return
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        k = k.strip()
+        v = v.strip().strip('"').strip("'")
+        if k and k not in os.environ:
+            os.environ[k] = v
 
 
 # ----------------------------------------------------------------------------
@@ -219,7 +381,11 @@ def simulate_with_snapshots(jobs, max_budget, snapshot_every, save_dir):
                     if p.is_alive():
                         p.kill()
                         p.join()
-            timeline.append((elapsed, counts_at_stop))
+            # Avoid a duplicate final checkpoint when this iteration already
+            # recorded a snapshot at the same elapsed (snapshot boundary
+            # coinciding with max_budget). counts are effectively identical.
+            if not timeline or (elapsed - timeline[-1][0]) > poll_sleep:
+                timeline.append((elapsed, counts_at_stop))
             hard_stopped = True
             print(f"[HARD STOP] {elapsed:.1f}s >= max_budget {max_budget:.1f}s")
             break
@@ -254,6 +420,14 @@ def simulate_with_snapshots(jobs, max_budget, snapshot_every, save_dir):
 
 
 def default_spec(max_speed=DEFAULT_MAX_SPEED, warmup_steps=WARMUP_STEPS):
+    # Caveat for both markovian and non-markovian specs: the compositional
+    # method evaluates each primitive segment independently with its own
+    # ``step`` restarting at 0, while the monolithic method sees one
+    # continuous trace. Any labeling logic keyed on the *absolute* step
+    # index (like ``warmup_steps`` below) therefore fires once per segment
+    # compositionally but once overall monolithically, and the two methods
+    # will measure different rho. Specs intended to compare both methods
+    # should label on state/feature values, not absolute step position.
     def transition(state, sym):
         if state == "bad":
             return "bad"
@@ -285,8 +459,121 @@ def load_spec(spec_module_path):
     return mod.make_spec()
 
 
+# Additional non-markovian spec factories, ported verbatim from
+# test_4way_intersection_wander_scenarios.py. All read the `speed` feature with
+# a 5-step warmup and have one absorbing reject state.
+_SPEC_WARMUP = 5
+_STOP_THRESHOLD = 0.5  # m/s, "slow" boundary
+_FAST_THRESHOLD = 1.5  # m/s, "fast" boundary for k_consec_fast
+
+
+def spec_k_consec_slow(K, threshold=_STOP_THRESHOLD):
+    """Never more than K consecutive slow steps post-warmup."""
+
+    def transition(state, sym):
+        if state == "ok_run":
+            return "slow_1" if sym == "slow" else "ok_run"
+        if state == "bad":
+            return "bad"
+        idx = int(state.split("_")[1])
+        if sym == "fast":
+            return "ok_run"
+        return "bad" if idx >= K else f"slow_{idx + 1}"
+
+    def label_row(row):
+        if row["step"] < _SPEC_WARMUP:
+            return "fast"
+        return "slow" if row["speed"] < threshold else "fast"
+
+    return automaton_specification(
+        start="ok_run",
+        inputs={"slow", "fast"},
+        transition=transition,
+        label=lambda s: s != "bad",
+        labeling_function=label_row,
+    )
+
+
+def spec_k_consec_fast(K, threshold=_FAST_THRESHOLD):
+    """Never more than K consecutive fast steps post-warmup (mirror of slow)."""
+
+    def transition(state, sym):
+        if state == "ok":
+            return "fast_1" if sym == "fast" else "ok"
+        if state == "bad":
+            return "bad"
+        idx = int(state.split("_")[1])
+        if sym == "slow":
+            return "ok"
+        return "bad" if idx >= K else f"fast_{idx + 1}"
+
+    def label_row(row):
+        if row["step"] < _SPEC_WARMUP:
+            return "slow"
+        return "fast" if row["speed"] >= threshold else "slow"
+
+    return automaton_specification(
+        start="ok",
+        inputs={"slow", "fast"},
+        transition=transition,
+        label=lambda s: s != "bad",
+        labeling_function=label_row,
+    )
+
+
+def spec_at_most_k_brake(K, threshold=_STOP_THRESHOLD):
+    """At most K debounced slow->fast brake episodes. Same DFA family as
+    specs/at_most_one_brake.py, generalized to arbitrary K."""
+
+    def transition(state, sym):
+        if state == "violated":
+            return "violated"
+        if state.endswith("_in_slow"):
+            n = int(state[1 : state.index("_")])
+            if sym == "slow":
+                return state
+            n += 1
+            return "violated" if n > K else f"q{n}"
+        n = int(state[1:])
+        return f"q{n}_in_slow" if sym == "slow" else state
+
+    def label_row(row):
+        if row["step"] < _SPEC_WARMUP:
+            return "fast"
+        return "slow" if row["speed"] < threshold else "fast"
+
+    return automaton_specification(
+        start="q0",
+        inputs={"slow", "fast"},
+        transition=transition,
+        label=lambda s: s != "violated",
+        labeling_function=label_row,
+    )
+
+
 def hoeffding_eps(n, delta=HOEFFDING_DELTA):
     return float(np.sqrt(np.log(2 / delta) / (2 * max(n, 1))))
+
+
+def composition_length(paths) -> int:
+    """Number of sequential composition steps in a path.
+
+    Accepts either the wrapped ``[(prob, composition), ...]`` form or a flat
+    ``List[CompositionStep]``. Returns the max step count across paths — i.e.
+    how many primitive segments make up one full monolithic episode. Used to
+    (a) put compositional throughput on a full-episode-equivalent axis and
+    (b) decide whether KDE (which needs >=2 traces) is even involved.
+    """
+    if not paths:
+        return 1
+    first = paths[0]
+    is_wrapped = (
+        isinstance(first, tuple)
+        and len(first) == 2
+        and isinstance(first[0], (int, float))
+    )
+    comps = [c for _, c in paths] if is_wrapped else [list(paths)]
+    return max((len(c) for c in comps), default=1)
 
 
 # ----------------------------------------------------------------------------
@@ -306,7 +593,12 @@ def analyze_compositional_at(
     temp_dir,
 ):
     breakdown = ";".join(f"{k}={counts.get(k, 0)}" for k in primitives)
-    if any(counts.get(p, 0) < 2 for p in primitives):
+    # KDE only enters for multi-step compositions; a single-step composition is
+    # a direct DFA-label estimate that needs just 1 trace (matching monolithic).
+    # Requiring >=2 everywhere would blank out single-primitive compositions at
+    # early budgets while monolithic already reports a rho.
+    min_traces = 2 if composition_length(paths) > 1 else 1
+    if any(counts.get(p, 0) < min_traces for p in primitives):
         return {
             "rho": None,
             "eps": None,
@@ -314,7 +606,7 @@ def analyze_compositional_at(
             "n_traces_breakdown": breakdown,
             "elapsed": elapsed,
             "status": "insufficient_data",
-            "note": "need >=2 traces per primitive for KDE",
+            "note": f"need >={min_traces} trace(s) per primitive",
         }
     if any(p not in final_logs for p in primitives):
         return {
@@ -461,6 +753,9 @@ def sweep_snapshot(
     prewarm_trim_overrides=None,
 ):
     records = []
+    # One full monolithic episode == this many primitive segments; used to put
+    # compositional throughput on a full-episode-equivalent axis.
+    n_steps = composition_length(paths)
     temp_dir = Path(save_dir) / "_temp_filtered"
     if temp_dir.exists():
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -524,9 +819,14 @@ def sweep_snapshot(
             rec = {
                 "scenic_file": str(scenic_file),
                 "method": METHOD_COMP,
-                "budget": elapsed,
+                # Charge the one-time graph-build cost to the compositional
+                # budget axis — it's a compositional-only setup the monolithic
+                # method never pays.
+                "budget": elapsed + graph_build_s,
                 "graph_build_s": graph_build_s,
                 **r,
+                # Full-episode-equivalent count: comp segments / steps-per-episode.
+                "n_full_traces": r["n_traces"] / n_steps if n_steps else r["n_traces"],
             }
             writer.writerow(rec)
             f.flush()
@@ -575,6 +875,8 @@ def sweep_snapshot(
                 "budget": elapsed,
                 "graph_build_s": graph_build_s,
                 **r,
+                # A monolithic trace already is one full episode.
+                "n_full_traces": r["n_traces"],
             }
             writer.writerow(rec)
             f.flush()
@@ -656,7 +958,10 @@ def plot_rho_vs_budget(records, out_path):
 
 
 def plot_throughput(records, out_path):
-    series = _series(records, "n_traces")
+    # n_full_traces normalizes compositional segment counts to full-episode
+    # equivalents so the two methods share a unit (a comp "trace" is one
+    # primitive segment; a mono "trace" is a full multi-segment episode).
+    series = _series(records, "n_full_traces")
     if not series:
         print("[plot throughput] no points; skipping")
         return
@@ -667,7 +972,7 @@ def plot_throughput(records, out_path):
     ax.set_xscale("log")
     ax.set_yscale("symlog")
     ax.set_xlabel("time budget (s)")
-    ax.set_ylabel("# trace episodes completed")
+    ax.set_ylabel("# full-episode-equivalent traces")
     ax.set_title("Trace throughput vs. budget")
     ax.grid(True, alpha=0.3)
     ax.legend()
@@ -790,26 +1095,6 @@ def plot_speedup_vs_budget(records, out_path):
 # ----------------------------------------------------------------------------
 
 
-def parse_max_steps_overrides(items):
-    out = {}
-    for it in items or ():
-        if "=" not in it:
-            raise ValueError(f"--max_steps_override expects NAME=INT, got: {it}")
-        k, v = it.split("=", 1)
-        out[k.strip()] = int(v.strip())
-    return out
-
-
-def parse_prewarm_trim(items):
-    out = {}
-    for it in items or ():
-        if "=" not in it:
-            raise ValueError(f"--prewarm_trim expects NAME=INT, got: {it}")
-        k, v = it.split("=", 1)
-        out[k.strip()] = int(v.strip())
-    return out
-
-
 def load_records(csv_path):
     out = []
     with open(csv_path) as f:
@@ -824,341 +1109,154 @@ def load_records(csv_path):
                     except ValueError:
                         row[k] = None
             row["n_traces"] = int(row.get("n_traces") or 0)
+            # Older CSVs predate n_full_traces; fall back to the raw count so
+            # the throughput plot still renders (unnormalized for those rows).
+            nft = row.get("n_full_traces")
+            if nft in (None, "", "None"):
+                row["n_full_traces"] = float(row["n_traces"])
+            else:
+                try:
+                    row["n_full_traces"] = float(nft)
+                except ValueError:
+                    row["n_full_traces"] = float(row["n_traces"])
             out.append(row)
     return out
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description=(
-            "Scenic backend: monolithic vs. compositional SMC over a "
-            "continuous run with periodic checkpoints."
-        )
-    )
-    parser.add_argument(
-        "--scenic_file",
-        required=True,
-        help="Composite .scenic source (must declare composite + monolithic).",
-    )
-    parser.add_argument(
-        "--composite_name",
-        default="Main",
-        help="Composite scenario name (default: Main).",
-    )
-    parser.add_argument(
-        "--monolithic_name",
-        default="MonolithicMain",
-        help="Monolithic counterpart scenario (default: MonolithicMain).",
-    )
-    parser.add_argument(
-        "--max_budget",
-        type=float,
-        default=1800.0,
-        help="Total wall-clock per method (default: 1800s = 30min).",
-    )
-    parser.add_argument(
-        "--snapshot_every",
-        type=float,
-        default=30.0,
-        help="Checkpoint interval in seconds (default: 30).",
-    )
-    parser.add_argument(
-        "--save_dir",
-        default="storage/scenic_budget_sweep",
-    )
-    parser.add_argument(
-        "--spec_module",
-        default=None,
-        help="Path to .py with make_spec(); else default safety spec.",
-    )
-    parser.add_argument(
-        "--max_speed",
-        type=float,
-        default=DEFAULT_MAX_SPEED,
-    )
-    parser.add_argument(
-        "--max_steps_primitive",
-        type=int,
-        default=85,
-    )
-    parser.add_argument(
-        "--max_steps_mono",
-        type=int,
-        default=170,
-    )
-    parser.add_argument(
-        "--max_steps_override",
-        nargs="+",
-        default=[],
-        help="Per-primitive max_steps override (e.g. Subscenario2L=110).",
-    )
-    parser.add_argument(
-        "--prewarm_trim",
-        nargs="+",
-        default=[],
-        help="Per-primitive prewarm trim count, applied post-generation "
-        "(e.g. GoStraight=35 TurnLeft=35 TurnRight=35). Drops the first "
-        "N rows of each trace and renumbers ``step``.",
-    )
-    parser.add_argument(
-        "--features",
-        nargs="+",
-        default=["speed"],
-    )
-    parser.add_argument(
-        "--center_feat_idx",
-        nargs="*",
-        type=int,
-        default=[],
-    )
-    parser.add_argument("--backend", default=None)
-    parser.add_argument("--model", default=None)
-    parser.add_argument(
-        "--reuse_results",
-        action="store_true",
-        help="Skip sim; replot from results.csv.",
-    )
-    args = parser.parse_args()
+PLOT_FILES = [
+    ("wallclock", "wallclock.png"),
+    ("eps_vs_budget", "eps_vs_budget.png"),
+    ("rho_vs_budget", "rho_vs_budget.png"),
+    ("throughput", "throughput.png"),
+    ("speedup_vs_budget", "speedup_vs_budget.png"),
+]
 
-    save_dir = Path(args.save_dir)
+
+def render_plots(records, plots_dir):
+    plot_eps_vs_budget(records, str(plots_dir / "eps_vs_budget.png"))
+    plot_rho_vs_budget(records, str(plots_dir / "rho_vs_budget.png"))
+    plot_throughput(records, str(plots_dir / "throughput.png"))
+    plot_speedup_vs_budget(records, str(plots_dir / "speedup_vs_budget.png"))
+    plot_wallclock_combo(records, str(plots_dir / "wallclock.png"))
+
+
+def log_to_wandb(project, name, config, plots_dir, csv_path):
+    """Open a W&B run, push whichever figures + CSV exist, then close it.
+
+    Defensive against partial/empty sweeps (no traces -> no plots): only
+    files that were actually written are logged.
+    """
+    import wandb
+
+    if os.environ.get("WANDB_API_KEY"):
+        wandb.login(key=os.environ["WANDB_API_KEY"])
+    wandb.init(project=project, name=name, config=config)
+
+    images = {}
+    for key, fname in PLOT_FILES:
+        p = plots_dir / fname
+        if p.exists():
+            images[key] = wandb.Image(str(p))
+    if images:
+        wandb.log(images)
+    if csv_path.exists():
+        artifact = wandb.Artifact("budget_sweep_results", type="dataset")
+        artifact.add_file(str(csv_path))
+        wandb.log_artifact(artifact)
+    wandb.finish()
+
+
+def run_experiment(name, cfg):
+    """Run one budget sweep (or replot it) into storage/budget_sweep/<name>/."""
+    save_dir = Path("storage/budget_sweep") / name
     save_dir.mkdir(parents=True, exist_ok=True)
     plots_dir = save_dir / "plots"
     plots_dir.mkdir(exist_ok=True)
     csv_path = save_dir / "results.csv"
 
-    if args.reuse_results:
+    print(f"\n{'=' * 70}\nEXPERIMENT: {name}\n{'=' * 70}")
+
+    if REUSE_RESULTS:
         if not csv_path.exists():
-            raise FileNotFoundError(f"--reuse_results given but {csv_path} missing")
+            print(f"[skip] REUSE_RESULTS set but {csv_path} missing")
+            return
         records = load_records(str(csv_path))
-        print(f"Loaded {len(records)} records.")
-    else:
-        scenic_file = str(Path(args.scenic_file).resolve())
-        spec = (
-            load_spec(args.spec_module)
-            if args.spec_module
-            else default_spec(max_speed=args.max_speed)
-        )
-        max_steps_overrides = parse_max_steps_overrides(args.max_steps_override)
-        prewarm_trim_overrides = parse_prewarm_trim(args.prewarm_trim)
+        print(f"[reuse] loaded {len(records)} records")
+        render_plots(records, plots_dir)
+        print(f"Results: {csv_path}\nPlots:   {plots_dir}/")
+        return
 
-        source_text = Path(scenic_file).read_text(encoding="utf-8")
-        backend_name, scenic_model = resolve_backend(
-            args.backend, args.model, source_text
-        )
-        mode2d = default_mode2d_for_backend(backend_name)
-
-        print(f"Parsing {scenic_file} …")
-        t0 = time.time()
-        graph = analyze_scenic_composition(scenic_file)
-        partner = build_partner_format(graph)
-        paths = parse_scenic_spec(partner)[args.composite_name]
-        primitives = sorted(get_primitives(paths))
-        graph_build_s = time.time() - t0
-        print(f"  graph build : {graph_build_s:.3f}s")
-        print(f"  backend     : {backend_name}")
-        print(f"  model       : {scenic_model}")
-        print(f"  mode2d      : {mode2d}")
-        print(f"  primitives  : {primitives}")
-        print(f"  paths       : {paths}")
-        print(
-            f"  monolithic  : {args.monolithic_name} (max_steps={args.max_steps_mono})"
-        )
-        n_checkpoints = max(1, int(args.max_budget // args.snapshot_every))
-        print(
-            f"\nPlan: 2 simulations × {args.max_budget:.0f}s = "
-            f"{2 * args.max_budget:.0f}s wall time, "
-            f"{n_checkpoints} checkpoints × 2 methods."
-        )
-
-        records = sweep_snapshot(
-            scenic_file,
-            args.monolithic_name,
-            paths,
-            primitives,
-            spec,
-            args.max_budget,
-            args.snapshot_every,
-            str(save_dir),
-            args.features,
-            args.center_feat_idx,
-            args.max_steps_mono,
-            args.max_steps_primitive,
-            max_steps_overrides,
-            str(csv_path),
-            graph_build_s,
-            scenic_model,
-            mode2d,
-            prewarm_trim_overrides,
-        )
-
-    plot_eps_vs_budget(records, str(plots_dir / "eps_vs_budget.png"))
-    plot_rho_vs_budget(records, str(plots_dir / "rho_vs_budget.png"))
-    plot_throughput(records, str(plots_dir / "throughput.png"))
-    plot_speedup_vs_budget(records, str(plots_dir / "speedup_vs_budget.png"))
-    plot_wallclock_combo(records, str(plots_dir / "wallclock.png"))
-
-    print(f"\nResults: {csv_path}")
-    print(f"Plots:   {plots_dir}/")
-
-
-if __name__ == "__main__":
-    mp.set_start_method("spawn")
-
-    # ----------------------------------------------------------------
-    # Load WANDB_API_KEY (and any other secrets) from .env at the repo
-    # root. Manual parser so we don't pull in python-dotenv.
-    # ----------------------------------------------------------------
-    ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
-    if ENV_PATH.exists():
-        with open(ENV_PATH) as _envf:
-            for _line in _envf:
-                _line = _line.strip()
-                if not _line or _line.startswith("#") or "=" not in _line:
-                    continue
-                _k, _, _v = _line.partition("=")
-                _k = _k.strip()
-                _v = _v.strip().strip('"').strip("'")
-                if _k and _k not in os.environ:
-                    os.environ[_k] = _v
-
-    # ----------------------------------------------------------------
-    # Hard-coded 1-hour sweep configuration: Set~B (N=5 wander) under
-    # phi_brake. main()'s argparse plumbing remains available for
-    # alternate configurations.
-    # ----------------------------------------------------------------
-    SCENIC_FILE = str(
-        Path(
-            "examples/compositional_analysis/dfa_tests/e2e_4way_example/"
-            "4_way_intersection_scenic/wander_scenarios.scenic"
-        ).resolve()
-    )
-    SAVE_DIR = Path("storage/scenic_budget_sweep_wander_scenarios")
-    MAX_BUDGET = 1800.0  # seconds per method (mono + comp run sequentially)
-    SNAPSHOT_EVERY = 30.0  # checkpoint cadence -> 60 points per method
-    COMPOSITE_NAME = "Main"
-    MONOLITHIC_NAME = "MonolithicWander"
-    MAX_STEPS_PRIMITIVE = 75  # matches test_4way_intersection_wander_scenarios.py
-    MAX_STEPS_MONO = 200  # 5 * (MAX_STEPS_PRIMITIVE - PREWARM_TRIM) = 5 * 40
-    MAX_STEPS_OVERRIDES = {}  # all primitives use MAX_STEPS_PRIMITIVE
-    PREWARM_TRIM_OVERRIDES = {
-        "BrakeScenario": 35,
-        "GoStraightScenario": 35,
-        "TurnLeftScenario": 35,
-        "TurnRightScenario": 35,
-    }
-    FEATURES = ["speed"]
-    CENTER_FEAT_IDX = []
-    SPEC_MODULE_PATH = str(
-        Path(__file__).resolve().parent / "specs" / "at_most_one_brake.py"
-    )
-
-    SAVE_DIR.mkdir(parents=True, exist_ok=True)
-    plots_dir = SAVE_DIR / "plots"
-    plots_dir.mkdir(exist_ok=True)
-    csv_path = SAVE_DIR / "results.csv"
-    spec = load_spec(SPEC_MODULE_PATH)
-
-    source_text = Path(SCENIC_FILE).read_text(encoding="utf-8")
+    scenic_file = str(Path(cfg["scenic_file"]).resolve())
+    spec = cfg["spec"]()
+    source_text = Path(scenic_file).read_text(encoding="utf-8")
     backend_name, scenic_model = resolve_backend(None, None, source_text)
     mode2d = default_mode2d_for_backend(backend_name)
 
-    print(f"Parsing {SCENIC_FILE} …")
+    print(f"Parsing {scenic_file} …")
     t0 = time.time()
-    graph = analyze_scenic_composition(SCENIC_FILE)
+    graph = analyze_scenic_composition(scenic_file)
     partner = build_partner_format(graph)
-    paths = parse_scenic_spec(partner)[COMPOSITE_NAME]
+    paths = parse_scenic_spec(partner)[cfg["composite_name"]]
     primitives = sorted(get_primitives(paths))
     graph_build_s = time.time() - t0
     print(f"  graph build : {graph_build_s:.3f}s")
     print(f"  backend     : {backend_name}")
     print(f"  primitives  : {primitives}")
-    print(f"  paths       : {paths}")
     print(
-        f"  Plan: 2 simulations × {MAX_BUDGET:.0f}s = "
-        f"{2 * MAX_BUDGET:.0f}s wall time (~1 hour)."
+        f"  monolithic  : {cfg['monolithic_name']} (max_steps={cfg['max_steps_mono']})"
     )
-
-    # ----------------------------------------------------------------
-    # Initialize Weights & Biases. API key is expected in env (loaded
-    # from .env above). wandb.login() returns silently if already
-    # authenticated; wandb.init() opens the run for this sweep.
-    # ----------------------------------------------------------------
-    import wandb
-
-    if os.environ.get("WANDB_API_KEY"):
-        wandb.login(key=os.environ["WANDB_API_KEY"])
-    wandb_run = wandb.init(
-        project="verifai-compositional-analysis",
-        name="scenic_budget_sweep_set_b_n5_brake",
-        config={
-            "scenic_file": SCENIC_FILE,
-            "composite_name": COMPOSITE_NAME,
-            "monolithic_name": MONOLITHIC_NAME,
-            "max_budget_s": MAX_BUDGET,
-            "snapshot_every_s": SNAPSHOT_EVERY,
-            "max_steps_primitive": MAX_STEPS_PRIMITIVE,
-            "max_steps_mono": MAX_STEPS_MONO,
-            "max_steps_overrides": MAX_STEPS_OVERRIDES,
-            "prewarm_trim_overrides": PREWARM_TRIM_OVERRIDES,
-            "features": FEATURES,
-            "center_feat_idx": CENTER_FEAT_IDX,
-            "spec_module": SPEC_MODULE_PATH,
-            "primitives": primitives,
-            "backend": backend_name,
-            "scenic_model": scenic_model,
-        },
+    print(
+        f"  Plan: 2 simulations × {cfg['max_budget']:.0f}s = "
+        f"{2 * cfg['max_budget']:.0f}s wall time."
     )
 
     records = sweep_snapshot(
-        SCENIC_FILE,
-        MONOLITHIC_NAME,
+        scenic_file,
+        cfg["monolithic_name"],
         paths,
         primitives,
         spec,
-        MAX_BUDGET,
-        SNAPSHOT_EVERY,
-        str(SAVE_DIR),
-        FEATURES,
-        CENTER_FEAT_IDX,
-        MAX_STEPS_MONO,
-        MAX_STEPS_PRIMITIVE,
-        MAX_STEPS_OVERRIDES,
+        cfg["max_budget"],
+        cfg["snapshot_every"],
+        str(save_dir),
+        cfg["features"],
+        cfg["center_feat_idx"],
+        cfg["max_steps_mono"],
+        cfg["max_steps_primitive"],
+        cfg["max_steps_overrides"],
         str(csv_path),
         graph_build_s,
         scenic_model,
         mode2d,
-        PREWARM_TRIM_OVERRIDES,
+        cfg["prewarm_trim"],
     )
 
-    plot_eps_vs_budget(records, str(plots_dir / "eps_vs_budget.png"))
-    plot_rho_vs_budget(records, str(plots_dir / "rho_vs_budget.png"))
-    plot_throughput(records, str(plots_dir / "throughput.png"))
-    plot_speedup_vs_budget(records, str(plots_dir / "speedup_vs_budget.png"))
-    plot_wallclock_combo(records, str(plots_dir / "wallclock.png"))
+    render_plots(records, plots_dir)
 
-    # ----------------------------------------------------------------
-    # Push whichever figures + CSV actually exist to wandb, then close
-    # the run. Defensive against partial/empty sweeps (no traces -> no
-    # plots): only log files that were written.
-    # ----------------------------------------------------------------
-    _log = {}
-    for _name, _file in [
-        ("wallclock", "wallclock.png"),
-        ("eps_vs_budget", "eps_vs_budget.png"),
-        ("rho_vs_budget", "rho_vs_budget.png"),
-        ("throughput", "throughput.png"),
-        ("speedup_vs_budget", "speedup_vs_budget.png"),
-    ]:
-        _p = plots_dir / _file
-        if _p.exists():
-            _log[_name] = wandb.Image(str(_p))
-    if _log:
-        wandb.log(_log)
-    if csv_path.exists():
-        _artifact = wandb.Artifact("budget_sweep_results", type="dataset")
-        _artifact.add_file(str(csv_path))
-        wandb.log_artifact(_artifact)
-    wandb.finish()
+    if USE_WANDB:
+        log_to_wandb(
+            WANDB_PROJECT,
+            f"budget_sweep_{name}",
+            {k: v for k, v in cfg.items() if k != "spec"}
+            | {
+                "experiment": name,
+                "primitives": primitives,
+                "backend": backend_name,
+                "scenic_model": scenic_model,
+            },
+            plots_dir,
+            csv_path,
+        )
 
-    print(f"\nResults: {csv_path}")
-    print(f"Plots:   {plots_dir}/")
+    print(f"Results: {csv_path}\nPlots:   {plots_dir}/")
+
+
+def main():
+    for name, cfg in EXPERIMENTS:
+        run_experiment(name, cfg)
+
+
+if __name__ == "__main__":
+    mp.set_start_method("spawn")
+    load_env_file(REPO_ROOT / ".env")
+    main()
