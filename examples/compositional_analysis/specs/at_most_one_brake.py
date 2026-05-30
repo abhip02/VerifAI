@@ -13,7 +13,12 @@ from verifai.monitor import automaton_specification
 
 
 WARMUP_STEPS = 5
-STOP_THRESHOLD = 0.5      # m/s; below this counts as "slow"
+# Positioned inside the cruising-speed band (~3–14 m/s) so the per-segment brake
+# count varies across traces; a boundary outside that band makes every segment's
+# verdict identical and the compositional convergence curve goes flat. Demo
+# cutoff, not a literal stop speed. Kept in sync with _STOP_THRESHOLD in
+# compare_budget_sweep.py.
+STOP_THRESHOLD = 6.0      # m/s; below this counts as "slow"
 MAX_BRAKE_EPISODES = 1    # K in the spec
 
 

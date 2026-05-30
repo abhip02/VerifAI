@@ -463,8 +463,13 @@ def load_spec(spec_module_path):
 # test_4way_intersection_wander_scenarios.py. All read the `speed` feature with
 # a 5-step warmup and have one absorbing reject state.
 _SPEC_WARMUP = 5
-_STOP_THRESHOLD = 0.5  # m/s, "slow" boundary
-_FAST_THRESHOLD = 1.5  # m/s, "fast" boundary for k_consec_fast
+# Thresholds are positioned inside the primitives' cruising-speed band (segments
+# run ~3–14 m/s) so the DFA verdict varies trace-to-trace. A boundary outside
+# that band makes every segment's verdict identical → the compositional estimate
+# becomes an exact constant with no sampling variance and its convergence curve
+# is flat. These are demo cutoffs, not literal stop/brake speeds.
+_STOP_THRESHOLD = 6.0  # m/s, "slow" boundary (slow < threshold)
+_FAST_THRESHOLD = 9.0  # m/s, "fast" boundary for k_consec_fast (fast >= threshold)
 
 
 def spec_k_consec_slow(K, threshold=_STOP_THRESHOLD):

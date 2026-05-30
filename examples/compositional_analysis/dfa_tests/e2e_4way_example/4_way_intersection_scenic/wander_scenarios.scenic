@@ -95,7 +95,8 @@ behavior BrakeBehavior():
 scenario GoStraightScenario():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DISTANCE_TO_INTERSECTION,
-                with behavior GoStraightBehavior()
+                with behavior GoStraightBehavior(),
+                with speed Range(0, 9)
     compose:
         while True:
             wait
@@ -104,7 +105,8 @@ scenario GoStraightScenario():
 scenario TurnLeftScenario():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DISTANCE_TO_INTERSECTION,
-                with behavior TurnLeftBehavior()
+                with behavior TurnLeftBehavior(),
+                with speed Range(0, 9)
     compose:
         while True:
             wait
@@ -113,7 +115,8 @@ scenario TurnLeftScenario():
 scenario TurnRightScenario():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DISTANCE_TO_INTERSECTION,
-                with behavior TurnRightBehavior()
+                with behavior TurnRightBehavior(),
+                with speed Range(0, 9)
     compose:
         while True:
             wait
@@ -122,7 +125,8 @@ scenario TurnRightScenario():
 scenario BrakeScenario():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DISTANCE_TO_INTERSECTION,
-                with behavior BrakeBehavior()
+                with behavior BrakeBehavior(),
+                with speed Range(0, 9)
     compose:
         while True:
             wait
