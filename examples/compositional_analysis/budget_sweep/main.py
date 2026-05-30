@@ -21,6 +21,7 @@ from verifai.monitor import automaton_specification
 
 from . import checks
 from .config import Record, SweepConfig
+from .plots import PLOT_FILES, render_plots
 from .sweep import BudgetSweep
 
 WANDB_PROJECT = os.environ.get("WANDB_PROJECT", "verifai-budget-sweep-v2")
@@ -127,12 +128,22 @@ def _push_to_wandb(
         wandb.log_artifact(art)
         wandb.save(str(log_path), base_path=str(log_path.parent), policy="now")
 
-    # 2. Per-experiment results.csv + (T, ρ̂, ε̂) line series.
+    # 2. Per-experiment results.csv + figures + (T, ρ̂, ε̂) line series.
     for name, (csv_path, records) in results_per_experiment.items():
         if csv_path.exists():
             art = wandb.Artifact(f"{name}_results", type="results")
             art.add_file(str(csv_path))
             wandb.log_artifact(art)
+
+        plots_dir = csv_path.parent / "plots"
+        if plots_dir.exists():
+            images = {
+                f"{name}/{key}": wandb.Image(str(plots_dir / fname))
+                for key, fname in PLOT_FILES
+                if (plots_dir / fname).exists()
+            }
+            if images:
+                wandb.log(images)
 
         # Step the series by budget seconds so the W&B chart x-axis is T.
         for r in records:
@@ -167,6 +178,12 @@ def main() -> None:
         sweep = BudgetSweep(cfg)
         records = sweep.run()
         print(f"[{name}] wrote {len(records)} records to {sweep.csv_path}")
+        plots_dir = sweep.csv_path.parent / "plots"
+        try:
+            written = render_plots(records, plots_dir)
+            print(f"[{name}] rendered {len(written)} plots in {plots_dir}/")
+        except Exception as exc:  # pragma: no cover — plotting must never abort the sweep
+            checks._log.warning("[%s] plot rendering failed: %s", name, exc)
         results_per_experiment[name] = (sweep.csv_path, records)
 
     _push_to_wandb(results_per_experiment)
