@@ -50,6 +50,19 @@ from examples.compositional_analysis.dfa_tests.e2e_4way_example.test_4way_inters
     make_spec_safe_under_max,
 )
 
+# Reuse the v1 DFA factories so v2 covers the same six experiments
+# compare_budget_sweep.py runs (four wander_scenarios specs + composed_wander
+# + traversal_wander). Importing the script module is safe — it only defines
+# names at import time and has no module-level side effects.
+from examples.compositional_analysis.compare_budget_sweep import (  # noqa: E402
+    default_spec,
+    load_spec,
+    spec_at_most_k_brake,
+    spec_k_consec_fast,
+    spec_k_consec_slow,
+    SPEC_AT_MOST_ONE_BRAKE,
+)
+
 
 def _make_safe_under_max_spec() -> automaton_specification:
     """Factory for §4.3's ``safe_under_max`` Markovian DFA.
@@ -67,6 +80,35 @@ def _make_safe_under_max_spec() -> automaton_specification:
 # Add or comment out entries to change what ``main()`` executes. Each entry
 # is ``(name, cfg)``; results land in ``cfg.save_dir / name``.
 # ---------------------------------------------------------------------------
+
+_V2_SAVE_ROOT = Path("storage/budget_sweep_v2")
+
+# Shared kwargs for the N=5 wander_scenarios setup (4 DFAs below reuse it).
+# Mirrors v1's ``_WANDER_SCEN`` in compare_budget_sweep.py so v2 reproduces
+# the same six paper experiments end-to-end.
+_WANDER_SCEN_KW: dict[str, object] = dict(
+    scenic_file=SCENIC_DIR / "wander_scenarios.scenic",
+    composite_name="Main",
+    monolithic_name="MonolithicWander",
+    max_budget=1800.0,
+    snapshot_every=30.0,
+    max_steps_primitive=75,
+    max_steps_mono=200,
+    features=["speed"],
+    center_feat_idx=[],
+    delta=0.05,
+    prewarm_trim={
+        p: 35
+        for p in (
+            "BrakeScenario",
+            "GoStraightScenario",
+            "TurnLeftScenario",
+            "TurnRightScenario",
+        )
+    },
+    save_dir=_V2_SAVE_ROOT,
+)
+
 
 EXPERIMENTS: list[tuple[str, SweepConfig]] = [
     # Paper §4.3 / Fig. 4 — Set C under safe_under_max.
@@ -94,7 +136,90 @@ EXPERIMENTS: list[tuple[str, SweepConfig]] = [
             prewarm_trim={
                 p: 25 for p in ("Subscenario2L", "Subscenario2R", "Subscenario2S")
             },
-            save_dir=Path("storage/budget_sweep_v2"),
+            save_dir=_V2_SAVE_ROOT,
+        ),
+    ),
+    # --- wander_scenarios under several specs (1 markovian + 3 non-markovian) ---
+    (
+        "wander_at_most_one_brake",
+        SweepConfig(spec=load_spec(str(SPEC_AT_MOST_ONE_BRAKE)), **_WANDER_SCEN_KW),
+    ),
+    (
+        "wander_at_most_two_brake",
+        SweepConfig(spec=spec_at_most_k_brake(2), **_WANDER_SCEN_KW),
+    ),
+    (
+        "wander_k_consec_slow_K2",
+        SweepConfig(spec=spec_k_consec_slow(2), **_WANDER_SCEN_KW),
+    ),
+    (
+        "wander_k_consec_fast_K10",
+        SweepConfig(spec=spec_k_consec_fast(10), **_WANDER_SCEN_KW),
+    ),
+    # N=5 wander over bare behaviors, safety DFA (test_4way_intersection_wander.py).
+    (
+        "composed_wander",
+        SweepConfig(
+            scenic_file=SCENIC_DIR / "composed_wander.scenic",
+            composite_name="Main",
+            monolithic_name="MonolithicWander",
+            spec=default_spec(max_speed=5.5),
+            max_budget=1800.0,
+            snapshot_every=30.0,
+            max_steps_primitive=75,
+            max_steps_mono=375,
+            features=["speed"],
+            center_feat_idx=[],
+            delta=0.05,
+            prewarm_trim={
+                p: 35 for p in ("Brake", "GoStraight", "TurnLeft", "TurnRight")
+            },
+            save_dir=_V2_SAVE_ROOT,
+        ),
+    ),
+    # 2-step intersection composition under the v1 safety DFA. Same scenic as
+    # ``set_c_safe_under_max`` above but a different DFA (default_spec(5.5) vs.
+    # safe_under_max), so this reproduces v1's ``composed_scenarios`` entry.
+    (
+        "composed_scenarios",
+        SweepConfig(
+            scenic_file=SCENIC_DIR / "composed_scenarios.scenic",
+            composite_name="Main",
+            monolithic_name="MonolithicMain",
+            spec=default_spec(max_speed=5.5),
+            max_budget=1800.0,
+            snapshot_every=30.0,
+            max_steps_primitive=85,
+            max_steps_mono=170,
+            features=["speed"],
+            center_feat_idx=[],
+            delta=0.05,
+            max_steps_overrides={
+                p: 110 for p in ("Subscenario2L", "Subscenario2R", "Subscenario2S")
+            },
+            prewarm_trim={
+                p: 25 for p in ("Subscenario2L", "Subscenario2R", "Subscenario2S")
+            },
+            save_dir=_V2_SAVE_ROOT,
+        ),
+    ),
+    # 10-step traversal (approach + turn) chain, safety DFA
+    # (test_4way_intersection_traversal_wander.py).
+    (
+        "traversal_wander",
+        SweepConfig(
+            scenic_file=SCENIC_DIR / "traversal_wander.scenic",
+            composite_name="Main",
+            monolithic_name="Monolithic5",
+            spec=default_spec(max_speed=7.5),
+            max_budget=1800.0,
+            snapshot_every=30.0,
+            max_steps_primitive=100,
+            max_steps_mono=1000,
+            features=["speed"],
+            center_feat_idx=[],
+            delta=0.05,
+            save_dir=_V2_SAVE_ROOT,
         ),
     ),
 ]
