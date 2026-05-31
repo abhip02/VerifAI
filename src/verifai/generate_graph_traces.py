@@ -32,6 +32,9 @@ DEFAULT_SCENIC_MODEL = "scenic.simulators.newtonian.model"
 #   "install_hint"  : human-readable pip/setup hint
 #   "description"   : short description surfaced in --help
 # -----------------------------------------------------------------------------
+#   "default_mode2d" : whether the backend should compile in Scenic's 2D
+#                     compatibility mode by default. Inherently-3D simulators
+#                     (CARLA, Webots, X-Plane) need 3D; planar ones default 2D.
 BACKENDS: Dict[str, Dict[str, object]] = {
     "newtonian": {
         "kind": "scenic",
@@ -39,6 +42,7 @@ BACKENDS: Dict[str, Dict[str, object]] = {
         "requires": ["scenic.simulators.newtonian"],
         "install_hint": "bundled with scenic",
         "description": "Scenic's built-in Newtonian simulator (plain kinematic model).",
+        "default_mode2d": True,
     },
     "newtonian-driving": {
         "kind": "scenic",
@@ -46,6 +50,7 @@ BACKENDS: Dict[str, Dict[str, object]] = {
         "requires": ["scenic.simulators.newtonian"],
         "install_hint": "bundled with scenic; requires an .xodr map via `param map`",
         "description": "Newtonian simulator + driving domain (Car, SetThrottleAction, ...).",
+        "default_mode2d": True,
     },
     "carla": {
         "kind": "scenic",
@@ -53,6 +58,7 @@ BACKENDS: Dict[str, Dict[str, object]] = {
         "requires": ["carla", "scenic.simulators.carla"],
         "install_hint": "install CARLA 0.9.x and `pip install carla`; run the CARLA server first",
         "description": "CARLA 0.9.x via Scenic. Requires a running CARLA server on :2000.",
+        "default_mode2d": False,
     },
     "metadrive": {
         "kind": "scenic",
@@ -60,6 +66,7 @@ BACKENDS: Dict[str, Dict[str, object]] = {
         "requires": ["metadrive", "scenic.simulators.metadrive"],
         "install_hint": "`pip install metadrive-simulator` (and `scenic[metadrive]` if prompted)",
         "description": "MetaDrive via Scenic. Self-contained, no external server.",
+        "default_mode2d": True,
     },
     "lgsvl": {
         "kind": "scenic",
@@ -67,6 +74,7 @@ BACKENDS: Dict[str, Dict[str, object]] = {
         "requires": ["lgsvl", "scenic.simulators.lgsvl"],
         "install_hint": "`pip install lgsvl`; requires a running LGSVL simulator",
         "description": "LGSVL via Scenic. Requires LGSVL running.",
+        "default_mode2d": False,
     },
     "webots": {
         "kind": "scenic",
@@ -74,6 +82,7 @@ BACKENDS: Dict[str, Dict[str, object]] = {
         "requires": ["scenic.simulators.webots"],
         "install_hint": "requires the Webots GUI and a .wbt world; launch webots first",
         "description": "Webots via Scenic. Requires Webots running with the target world.",
+        "default_mode2d": False,
     },
     "xplane": {
         "kind": "scenic",
@@ -81,6 +90,7 @@ BACKENDS: Dict[str, Dict[str, object]] = {
         "requires": ["scenic.simulators.xplane"],
         "install_hint": "requires X-Plane running with the Scenic plugin",
         "description": "X-Plane via Scenic. Requires X-Plane running.",
+        "default_mode2d": False,
     },
     "car_simulator": {
         "kind": "native",
@@ -92,8 +102,18 @@ BACKENDS: Dict[str, Dict[str, object]] = {
             "scenes; runs the bicycle_model with a per-primitive control "
             "policy and writes the same traces.csv schema."
         ),
+        "default_mode2d": True,
     },
 }
+
+
+def default_mode2d_for_backend(backend: Optional[str]) -> bool:
+    """Return the default mode2D for a backend (True for planar sims, False
+    for inherently-3D sims like CARLA/Webots/X-Plane). Unknown backends
+    fall back to True for backwards-compat."""
+    if backend and backend in BACKENDS:
+        return bool(BACKENDS[backend].get("default_mode2d", True))
+    return True
 
 
 def _backend_available(backend: str) -> Tuple[bool, str]:
@@ -187,7 +207,7 @@ def build_trace_jobs(
     save_dir: Union[str, Path],
     n: Optional[int] = None,
     *,
-    mode2d: bool = True,
+    mode2d: Optional[bool] = None,
     model: Optional[str] = None,
     backend: Optional[str] = None,
     max_iterations: int = 2000,
@@ -199,6 +219,8 @@ def build_trace_jobs(
         Path(source).read_text(encoding="utf-8") if Path(source).exists() else ""
     )
     backend_name, scenic_model = resolve_backend(backend, model, source_text)
+    if mode2d is None:
+        mode2d = default_mode2d_for_backend(backend_name)
 
     enriched = build_enriched_graph(source, model=scenic_model)
     save_dir = Path(save_dir)
@@ -302,6 +324,7 @@ def _trajectory_rows(simulation, trace_id: int) -> List[Dict[str, object]]:
     terminated_complete = getattr(termination_type, "name", "") == "scenarioComplete"
 
     positions = [(frame[0].x, frame[0].y) for frame in trajectory]
+    z_values = [float(getattr(frame[0], "z", 0.0) or 0.0) for frame in trajectory]
     actions_per_step = getattr(simulation.result, "actions", ()) or ()
     rewards_per_step = getattr(simulation.result, "rewards", None)
 
@@ -340,6 +363,7 @@ def _trajectory_rows(simulation, trace_id: int) -> List[Dict[str, object]]:
                 "step": step,
                 "x": x,
                 "y": y,
+                "z": z_values[step] if step < len(z_values) else 0.0,
                 "heading": heading,
                 "speed": speed,
                 "action": action_val,
@@ -430,7 +454,7 @@ def _worker_native_car_simulator(job: Mapping[str, object]) -> None:
     with csv_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["trace_id", "step", "x", "y", "heading", "speed", "label"],
+            fieldnames=["trace_id", "step", "x", "y", "z", "heading", "speed", "label"],
         )
         writer.writeheader()
 
@@ -465,6 +489,7 @@ def _worker_native_car_simulator(job: Mapping[str, object]) -> None:
                         "step": step_idx,
                         "x": x,
                         "y": y,
+                        "z": 0.0,
                         "heading": heading,
                         "speed": v,
                         "label": False,
@@ -539,6 +564,7 @@ def _worker_generate_traces(job: Mapping[str, object]) -> None:
                     "step",
                     "x",
                     "y",
+                    "z",
                     "heading",
                     "speed",
                     "action",
@@ -632,14 +658,20 @@ def generate_traces_parallel(
             tqdm = None
 
         total_target = sum(int(j.get("n") or 0) for j in jobs)
-        bar = tqdm(total=total_target, desc="traces", unit="trace") if tqdm and total_target else None
+        bar = (
+            tqdm(total=total_target, desc="traces", unit="trace")
+            if tqdm and total_target
+            else None
+        )
 
         while True:
             elapsed = time.time() - start_time
 
             if bar is not None:
                 done = sum(
-                    _count_trace_ids(_csv_path_for_primitive(j["save_dir"], str(j["primitive"])))
+                    _count_trace_ids(
+                        _csv_path_for_primitive(j["save_dir"], str(j["primitive"]))
+                    )
                     for j in jobs
                 )
                 bar.n = min(done, total_target)
@@ -841,16 +873,32 @@ def _worker_generate_scenario(job: Mapping[str, object]) -> Tuple[str, str]:
 
     try:
         from tqdm import tqdm
-        bar = tqdm(total=n, desc=f"{scenario_name:<18s}", unit="trace",
-                   position=position, leave=True)
+
+        bar = tqdm(
+            total=n,
+            desc=f"{scenario_name:<18s}",
+            unit="trace",
+            position=position,
+            leave=True,
+        )
     except ImportError:
         bar = None
 
     with csv_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["trace_id", "step", "x", "y", "heading", "speed",
-                        "action", "reward", "label"],
+            fieldnames=[
+                "trace_id",
+                "step",
+                "x",
+                "y",
+                "z",
+                "heading",
+                "speed",
+                "action",
+                "reward",
+                "label",
+            ],
         )
         writer.writeheader()
         trace_id = 0
@@ -859,10 +907,10 @@ def _worker_generate_scenario(job: Mapping[str, object]) -> Tuple[str, str]:
         while trace_id < n and attempts < max_attempts:
             attempts += 1
             try:
-                scene, _ = sc.generate(maxIterations=max_iterations,
-                                       verbosity=0)
-                simulation = sim.simulate(scene, maxSteps=max_steps,
-                                          verbosity=0, maxIterations=1)
+                scene, _ = sc.generate(maxIterations=max_iterations, verbosity=0)
+                simulation = sim.simulate(
+                    scene, maxSteps=max_steps, verbosity=0, maxIterations=1
+                )
             except Exception as exc:
                 if bar is not None:
                     bar.write(f"[{scenario_name}] attempt {attempts} failed: {exc}")
@@ -895,7 +943,7 @@ def generate_graph_scenarios(
     max_steps: Union[int, Mapping[str, int], None] = None,
     model: Optional[str] = None,
     backend: Optional[str] = None,
-    mode2d: bool = True,
+    mode2d: Optional[bool] = None,
     max_iterations: int = 2000,
 ) -> Dict[str, str]:
     """Per-primitive trace generation for SELF-CONTAINED scenario primitives.
@@ -940,6 +988,8 @@ def generate_graph_scenarios(
         Path(source).read_text(encoding="utf-8") if Path(source).exists() else ""
     )
     _backend_name, scenic_model = resolve_backend(backend, model, source_text)
+    if mode2d is None:
+        mode2d = default_mode2d_for_backend(_backend_name)
 
     primitives = list(primitives)
     if not primitives:
@@ -981,7 +1031,7 @@ def generate_graph_traces(
     n: Optional[int] = None,
     save_dir: Union[str, Path] = "storage/graph_traces",
     reuse_traces: bool = False,
-    mode2d: bool = True,
+    mode2d: Optional[bool] = None,
     model: Optional[str] = None,
     backend: Optional[str] = None,
     max_iterations: int = 2000,
@@ -1025,7 +1075,7 @@ def test_scenario(
     error_bound: Optional[float] = None,
     reuse_traces: bool = False,
     delta: float = 0.05,
-    mode2d: bool = True,
+    mode2d: Optional[bool] = None,
     model: Optional[str] = None,
     max_iterations: int = 2000,
     max_steps: Optional[int] = None,
@@ -1095,8 +1145,13 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--mode2d",
-        action="store_true",
-        help="Compile Scenic scenarios in 2D mode",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Compile Scenic scenarios in 2D compatibility mode. Default: "
+            "auto-picked per backend (False for CARLA/Webots/X-Plane/LGSVL, "
+            "True otherwise). Use --no-mode2d to force 3D."
+        ),
     )
     parser.add_argument(
         "--model",
@@ -1156,12 +1211,3 @@ if __name__ == "__main__":
     print("\nGenerated logs:")
     for primitive, csv_path in sorted(logs.items()):
         print(f"  {primitive}: {csv_path}")
-
-
-if __name__ == "__main__":
-    import json
-
-    g = build_enriched_graph(
-        "tests/scenic/scenic_tests/cases_realistic/tollgate_test_metadrive/main.scenic"
-    )
-    print(json.dumps(g, indent=2, default=str))
