@@ -18,19 +18,22 @@ from stable_baselines3.common.vec_env.subproc_vec_env import SubprocVecEnv
 from metadrive.utils.draw_top_down_map import draw_top_down_map
 
 
-def make_env(scenario, monitor=False):
+def make_env(scenario, monitor=False, use_render=False, horizon=2000, traffic_density=0.05,
+             crash_object_done=True):
     config = MetaDriveEnv.default_config()
     config.map = scenario
     config.discrete_action=False
-    config.horizon=2000
+    config.horizon=horizon
     config.num_scenarios=1000
     config.start_seed=1000
-    config.traffic_density=0.05
+    config.traffic_density=traffic_density
     config.need_inverse_traffic=True
     config.accident_prob=0.0
     config.random_lane_width=False
     config.random_agent_model=False
     config.random_lane_num=False
+    config.use_render=use_render
+    config.crash_object_done=crash_object_done
     if monitor:
         return Monitor(MetaDriveEnv(config))
     else:

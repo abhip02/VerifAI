@@ -8,6 +8,17 @@ import sys
 import random
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
+# ast.unparse was added in Python 3.9; provide a fallback for 3.8.
+if not hasattr(ast, "unparse"):
+    try:
+        import astunparse as _astunparse
+        ast.unparse = lambda node: _astunparse.unparse(node).strip()
+    except ImportError:
+        raise RuntimeError(
+            "Python < 3.9 detected and 'astunparse' is not installed. "
+            "Run: pip install astunparse"
+        )
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = ROOT / "src"
 if str(SRC_DIR) not in sys.path:
