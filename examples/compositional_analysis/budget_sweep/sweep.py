@@ -1,41 +1,3 @@
-"""The :class:`BudgetSweep` driver — parses scenic, runs both methods
-sequentially, analyzes every checkpoint, writes ``results.csv``.
-
-Reproduces the §4.3 (Q2: efficiency at matched wall-clock budget) protocol
-from our paper:
-
-    Compositional_Analysis_for_Safety_Specifications___RV26.pdf
-    (Pomalapally & Raeesi, RV26 submission)
-
-Per §4.3: "For each method we run one continuous simulation per composite
-up to T_max and record per-primitive trace counts at periodic checkpoints.
-The estimator is evaluated on the trace prefix available at each
-checkpoint, yielding a sequence (T, ρ̂, ε̂) from a single run per method."
-
-Reusable helpers already in ``verifai`` (do **not** reimplement):
-    - ``verifai.generate_graph_traces._worker_generate_scenario`` —
-      subprocess target that runs one Scenic scenario and writes
-      ``traces.csv``.
-    - ``verifai.generate_graph_traces._count_trace_ids`` — count
-      completed trace_ids in a CSV.
-    - ``verifai.generate_graph_traces._trim_partial_trace`` — drop the
-      trailing partial trace after a hard stop.
-    - ``verifai.generate_graph_traces.resolve_backend`` /
-      ``default_mode2d_for_backend`` — pick simulator + 2D mode from
-      the scenic source.
-    - ``verifai.compositional_analysis.relabel_traces`` — rewrite a
-      trace CSV with DFA labels and return its ``rho``.
-    - ``verifai.compositional_analysis.ScenarioBase`` /
-      ``CompositionalAnalysisEngine.check_with_dfa_scenic`` —
-      compositional ``(rho, eps)`` estimator.
-    - ``verifai.scenic_composition_analysis.analyze_scenic_composition``
-      / ``build_partner_format`` — parse a ``.scenic`` file into the
-      partner-format dict.
-    - ``verifai.scenic_parser.parse_scenic_spec`` /
-      ``get_primitives`` — extract composition paths and the set of
-      primitive scenario names.
-"""
-
 from __future__ import annotations
 
 import csv
@@ -248,7 +210,9 @@ class BudgetSweep:
                 if not timeline or (elapsed - timeline[-1][0]) > poll_sleep:
                     timeline.append((elapsed, counts_at_stop))
                 hard_stopped = True
-                print(f"[hard stop] {elapsed:.1f}s >= max_budget {self.cfg.max_budget:.1f}s")
+                print(
+                    f"[hard stop] {elapsed:.1f}s >= max_budget {self.cfg.max_budget:.1f}s"
+                )
                 break
             if all(not proc.is_alive() for _, proc, _ in processes):
                 timeline.append((elapsed, _all_counts()))

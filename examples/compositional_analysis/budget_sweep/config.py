@@ -1,9 +1,3 @@
-"""Data layer: :class:`SweepConfig` and shared type aliases.
-
-Lives apart from :mod:`budget_sweep.sweep` so the checks module can
-``TYPE_CHECKING``-import these names without dragging the engine in.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field

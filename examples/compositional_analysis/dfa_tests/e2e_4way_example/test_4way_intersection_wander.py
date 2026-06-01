@@ -104,8 +104,8 @@ def make_spec_reach_high():
     )
 
 
-def make_spec_safe_under_max():
-    """Safety: did speed stay <= MAX_SPEED for the whole post-warmup?"""
+def make_spec_safe_under_max(max_speed: float = MAX_SPEED):
+    """Safety: did speed stay <= max_speed for the whole post-warmup?"""
     def transition(state, sym):
         if state == "violated":
             return "violated"
@@ -114,7 +114,7 @@ def make_spec_safe_under_max():
     def label_row(row):
         if row["step"] < WARMUP_STEPS:
             return "ok"
-        return "over" if row["speed"] > MAX_SPEED else "ok"
+        return "over" if row["speed"] > max_speed else "ok"
 
     return automaton_specification(
         start="ok",

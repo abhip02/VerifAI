@@ -1,12 +1,3 @@
-"""Matplotlib figure generation for the v2 budget sweep.
-
-Ported verbatim from ``compare_budget_sweep.py`` (the v1 script) so the
-paper figures continue to render from v2 results without changes to the
-v2 methodology. Reads :class:`~budget_sweep.config.Record` rows produced
-by :class:`~budget_sweep.sweep.BudgetSweep` and writes PNGs into a
-``plots/`` subdirectory.
-"""
-
 from __future__ import annotations
 
 import csv
@@ -268,7 +259,11 @@ def render_plots(records: list[Record], plots_dir: Path) -> dict[str, Path]:
     plot_throughput(recs, str(plots_dir / "throughput.png"))
     plot_speedup_vs_budget(recs, str(plots_dir / "speedup_vs_budget.png"))
     plot_wallclock_combo(recs, str(plots_dir / "wallclock.png"))
-    return {key: plots_dir / fname for key, fname in PLOT_FILES if (plots_dir / fname).exists()}
+    return {
+        key: plots_dir / fname
+        for key, fname in PLOT_FILES
+        if (plots_dir / fname).exists()
+    }
 
 
 def load_records_csv(csv_path: Path) -> list[Record]:

@@ -1,38 +1,3 @@
-"""Runtime checks for :mod:`budget_sweep.sweep`.
-
-Every ``check_*`` function **logs** on a violated condition — it does
-not raise — so the sweep keeps running. Violations are written to
-``checks.log`` next to this module (append mode) and also emitted to
-stderr at WARNING+. The configured logger is ``budget_sweep.checks``;
-``_check(cond, msg)`` is the shared helper that gates every log line.
-
-Two flavors of checks, both invoked from ``BudgetSweep``:
-
-1. **Correctness checks** — pre/post-conditions on our own data
-   structures (``SweepConfig``, jobs, snapshots, records, the parsed
-   composition graph, the final results list). Violations of these
-   point at bugs in this script.
-
-   ``check_config``, ``check_parsed_graph``, ``check_jobs``,
-   ``check_simulation_result``, ``check_snapshot``,
-   ``check_compositional_inputs``, ``check_monolithic_inputs``,
-   ``check_record``, ``check_run_preconditions``, ``check_run_result``.
-
-2. **Scenario-health checks** — diagnostic probes on simulator output
-   that surface problems in the ``.scenic`` files themselves (slow or
-   stuck scenarios, missing feature columns, trivially-true / trivially-
-   false DFA verdicts, cross-method disagreement beyond Hoeffding
-   error). Violations of these usually mean a Scenic-side bug, not a
-   bug here.
-
-   ``check_throughput``, ``check_trace_csv``, ``check_rho_signal``,
-   ``check_method_agreement``.
-
-After a sweep, ``tail budget_sweep/checks.log`` to see everything that
-fired. Lines tagged ``[scenario:NAME]`` and ``[agreement]`` are the
-scenario-health signals.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -398,9 +363,7 @@ def check_throughput(
             )
             continue
         # Find first checkpoint at which this primitive had >=1 trace.
-        first_t = next(
-            (t for t, c in timeline if c.get(name, 0) >= 1), final_elapsed
-        )
+        first_t = next((t for t, c in timeline if c.get(name, 0) >= 1), final_elapsed)
         if max_budget > 0 and first_t / max_budget > _LATE_FIRST_TRACE_FRACTION:
             _log.warning(
                 "[scenario:%s] first trace at %.1fs (%.0f%% of budget) — "
@@ -410,7 +373,9 @@ def check_throughput(
                 100.0 * first_t / max_budget,
             )
 
-    positive = {n: final_counts.get(n, 0) for n in scenario_names if final_counts.get(n, 0) > 0}
+    positive = {
+        n: final_counts.get(n, 0) for n in scenario_names if final_counts.get(n, 0) > 0
+    }
     if len(positive) >= 2:
         hi = max(positive.values())
         lo = min(positive.values())
@@ -458,7 +423,9 @@ def check_trace_csv(
                 tid = line.split(",", 1)[0]
                 lengths[tid] = lengths.get(tid, 0) + 1
     except OSError as exc:
-        _log.warning("[scenario:%s] failed to read %s: %r", scenario_name, log_path, exc)
+        _log.warning(
+            "[scenario:%s] failed to read %s: %r", scenario_name, log_path, exc
+        )
         return
 
     missing_cols = [c for c in features if c not in header]
@@ -472,7 +439,9 @@ def check_trace_csv(
         )
 
     if not lengths:
-        _log.warning("[scenario:%s] traces.csv has header but zero data rows", scenario_name)
+        _log.warning(
+            "[scenario:%s] traces.csv has header but zero data rows", scenario_name
+        )
         return
 
     vals = list(lengths.values())
@@ -537,8 +506,11 @@ def check_method_agreement(records: list["Record"]) -> None:
     methodology-level red flag (handoff bias, prewarm trim missing,
     feature mismatch, etc.).
     """
+
     def _last_ok(method: str):
-        oks = [r for r in records if r.get("method") == method and r.get("status") == "ok"]
+        oks = [
+            r for r in records if r.get("method") == method and r.get("status") == "ok"
+        ]
         return oks[-1] if oks else None
 
     mono = _last_ok("monolithic")
