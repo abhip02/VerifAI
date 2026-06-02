@@ -37,13 +37,13 @@ absorbing-accept state, so compositional rho collapses to Sub1 rho.
 
 The safety-complement test behaves correctly and should pass.
 
-Primitives:  S, X, C
+Primitives:  S, X, C, O
 Combinations:
-    SX   : S → X          (2-step)
-    SXS  : S → X → S      (3-step)
-    SC   : S → C          (2-step)
-    SCS  : S → C → S      (3-step)
-    SCX  : S → C → X      (3-step)
+    SX    : S → X              (2-step)
+    SXS   : S → X → S          (3-step)
+    SOC   : S → O → C          (3-step)
+    CSXS  : C → S → X → S      (4-step)
+    CXSXC : C → X → S → X → C  (5-step)
 
 Usage: pytest test_check_with_dfa_cosafety_fast_twice.py -s
 """
@@ -61,14 +61,14 @@ LOW_SPEED_MS  = 3.5    # m/s  (~13 km/h) — "slow" (same threshold as tollgate 
 N_EPISODES    = 1000
 TRACE_DIR     = os.path.join(os.path.dirname(__file__), "storage", "vshape_speed")
 
-PRIMITIVES   = {"S": 0, "X": 1, "C": 2}
-MONOLITHICS  = {"SX": 3, "SXS": 4, "SC": 5, "SCS": 6, "SCX": 7}
+PRIMITIVES   = {"S": 0, "X": 1, "C": 2, "O": 8}
+MONOLITHICS  = {"SX": 3, "SXS": 4, "SOC": 10, "CSXS": 11, "CXSXC": 12}
 COMBINATIONS = [
-    ("SX",  ["S", "X"]),
-    ("SXS", ["S", "X", "S"]),
-    ("SC",  ["S", "C"]),
-    ("SCS", ["S", "C", "S"]),
-    ("SCX", ["S", "C", "X"]),
+    ("SX",    ["S", "X"]),
+    ("SXS",   ["S", "X", "S"]),
+    ("SOC",   ["S", "O", "C"]),
+    ("CSXS",  ["C", "S", "X", "S"]),
+    ("CXSXC", ["C", "X", "S", "X", "C"]),
 ]
 
 
