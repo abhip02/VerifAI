@@ -38,10 +38,10 @@ N_EPISODES          = 1000
 TRACE_DIR           = os.path.join(os.path.dirname(__file__), "storage", "tollgate")
 
 # Primitives: name → generation seed
-PRIMITIVES = {"S": 0, "X": 1, "C": 2, "O": 8}
+PRIMITIVES = {"S": 0, "X": 1, "C": 4, "O": 8}
 
 # Monolithic ground-truth scenarios: name → generation seed
-MONOLITHICS = {"SX": 3, "SXS": 4, "SOC": 10, "CSXS": 11, "CXSXC": 12}
+MONOLITHICS = {"SX": 2, "SXS": 3, "SOC": 10, "CSXS": 11, "CXSXC": 12}
 
 # (monolithic_name, compositional_path) pairs to test
 COMBINATIONS = [
@@ -78,9 +78,11 @@ def make_spec():
 
 def generate(scenario, seed):
     from utils import generate_traces
-    generate_traces(seed=seed, save_dir=TRACE_DIR, expert=True,
-                    n=N_EPISODES, scenario=scenario, extra_obstacles=True)
-    return os.path.join(TRACE_DIR, scenario, "traces.csv")
+    csv = os.path.join(TRACE_DIR, scenario, "traces.csv")
+    if not os.path.exists(csv):
+        generate_traces(seed=seed, save_dir=TRACE_DIR, expert=True,
+                        n=N_EPISODES, scenario=scenario, extra_obstacles=True)
+    return csv
 
 
 @pytest.fixture(scope="module")
@@ -88,19 +90,20 @@ def setup():
     spec = make_spec()
     paths = {}
 
-    for name, seed in PRIMITIVES.items():
-        csv = generate(name, seed)
-        relabel_traces(csv, spec)
-        paths[name] = csv
-        rho = pd.read_csv(csv).groupby("trace_id")["label"].last().astype(float).mean()
-        print(f"  [primitive]  {name}: rho={rho:.4f}")
+    needed_prims = {p for _, comp_path in COMBINATIONS for p in comp_path}
+    needed_monos = {mono for mono, _ in COMBINATIONS}
+    all_seeds = {**PRIMITIVES, **MONOLITHICS}
 
-    for name, seed in MONOLITHICS.items():
-        csv = generate(name, seed)
+    for name in [("S"), ("X"), ("SX"), ("SXS"),
+                 ("C"), ("O"), ("SOC"), ("CSXS"), ("CXSXC")]:
+        if name not in needed_prims and name not in needed_monos:
+            continue
+        csv = generate(name, all_seeds[name])
         relabel_traces(csv, spec)
         paths[name] = csv
         rho = pd.read_csv(csv).groupby("trace_id")["label"].last().astype(float).mean()
-        print(f"  [monolithic] {name}: rho={rho:.4f}")
+        kind = "primitive" if name in PRIMITIVES else "monolithic"
+        print(f"  [{kind}]  {name}: rho={rho:.4f}")
 
     return paths, spec
 

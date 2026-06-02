@@ -53,8 +53,7 @@ def generate_traces(
 
     all_traces = []
     trace_id = 0
-    spawned_lights: list = []
-    spawned_barriers: list = []
+    spawned_obstacles = []
 
     os.makedirs(save_dir, exist_ok=True)
 
@@ -73,11 +72,9 @@ def generate_traces(
         writer.writeheader()
 
     for ep in range(n):
-        if spawned_lights:
-            env.engine.clear_objects([l.id for l in spawned_lights])
-        if spawned_barriers:
-            env.engine.clear_objects([b.id for b in spawned_barriers])
-        spawned_lights, spawned_barriers = [], []
+        if spawned_obstacles:
+            env.engine.clear_objects([obj.id for obj in spawned_obstacles])
+            spawned_obstacles = []
 
         obs, _ = env.reset()
 
@@ -85,9 +82,7 @@ def generate_traces(
 
         if extra_obstacles and rng.random() < 0.6:
             try:
-                result = add_obstacles(env, rng, max_pos_ahead=max_obstacle_distance)
-                if result:
-                    spawned_lights, spawned_barriers = result
+                spawned_obstacles = add_obstacles(env, rng, max_pos_ahead=max_obstacle_distance) or []
             except Exception:
                 pass
         
