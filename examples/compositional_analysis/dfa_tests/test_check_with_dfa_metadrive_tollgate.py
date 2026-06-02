@@ -34,7 +34,7 @@ from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEn
 
 STOP_THRESHOLD_MS   = 3.5
 REQUIRED_WAIT_STEPS = 3
-N_EPISODES          = 100
+N_EPISODES          = 1000
 TRACE_DIR           = os.path.join(os.path.dirname(__file__), "storage", "tollgate")
 
 # Primitives: name → generation seed
