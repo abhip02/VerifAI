@@ -230,8 +230,17 @@ class CompositionalAnalysisEngine:
         if n == 1:
             return rho, rho * eps_rho_ratios[0]
 
+        # Co-safety: initial state is non-accepting → downstream steps are
+        # trivially rho=1 (absorbing accepting state means once accepted, always
+        # accepted regardless of subsequent segments).
+        is_cosafety = not spec._dfa._label(spec._dfa.start)
+
         # Subsequent steps
         for i in range(1, n):
+            if is_cosafety:
+                eps_rho_ratios.append(0.0)
+                continue
+
             step_rho, step_eps_ratio = self._evaluate_step(
                 steps[i], spec, q_init_dists[i], per_step_delta,
                 prev_step=steps[i - 1],

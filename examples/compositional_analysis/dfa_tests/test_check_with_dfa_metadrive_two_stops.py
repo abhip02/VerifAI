@@ -1,18 +1,8 @@
 """
-Tollgate test: non-Markovian "mandatory wait" spec verified with check_with_dfa
+Test check_with_dfa with a "no more than one near-stop" DFA spec
 across multiple scenario combinations.
 
-Spec: once the vehicle slows below STOP_THRESHOLD_MS, it must remain slow
-for at least REQUIRED_WAIT_STEPS consecutive steps before speeding up again.
-Resuming early is a violation.
-
-DFA (K=3):
-    moving   --slow--> wait_1
-    wait_1   --slow--> wait_2
-    wait_2   --slow--> wait_3
-    wait_3   --any --> moving   (wait complete, back to normal)
-    wait_*   --fast--> violated (absorbing)
-    moving   --fast--> moving
+DFA: moving --near_stop--> stopped_once --near_stop--> stopped_twice (fail)
 
 Primitives:  S, X, C, O
 Combinations:
@@ -22,26 +12,26 @@ Combinations:
     CSXS  : C → S → X → S      (4-step)
     CXSXC : C → X → S → X → C  (5-step)
 
-Usage: pytest test_check_with_dfa_metadrive_tollgate.py -s
+Usage: pytest test_check_with_dfa_metadrive_two_stops.py -s
 """
 
 import os
+
 import pandas as pd
 import pytest
 
 from verifai.monitor import automaton_specification
 from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine, relabel_traces
 
-STOP_THRESHOLD_MS   = 3.5
-REQUIRED_WAIT_STEPS = 3
-N_EPISODES          = 1000
-TRACE_DIR           = os.path.join(os.path.dirname(__file__), "storage", "tollgate")
+NEAR_STOP_MS = 3.5
+N_EPISODES   = 1000
+TRACE_DIR    = os.path.join(os.path.dirname(__file__), "dfa_test_traces_two_stops")
 
 # Primitives: name → generation seed
-PRIMITIVES = {"S": 0, "X": 1, "C": 4, "O": 8}
+PRIMITIVES = {"S": 0, "X": 1, "C": 2, "O": 8}
 
 # Monolithic ground-truth scenarios: name → generation seed
-MONOLITHICS = {"SX": 2, "SXS": 3, "SOC": 10, "CSXS": 11, "CXSXC": 12}
+MONOLITHICS = {"SX": 3, "SXS": 4, "SOC": 10, "CSXS": 11, "CXSXC": 12}
 
 # (monolithic_name, compositional_path) pairs to test
 COMBINATIONS = [
@@ -54,56 +44,48 @@ COMBINATIONS = [
 
 
 def make_spec():
-    K = REQUIRED_WAIT_STEPS
-    wait_states = [f"wait_{i+1}" for i in range(K)]
-
     def transition(state, sym):
         if state == "moving":
-            return "wait_1" if sym == "slow" else "moving"
-        if state == "violated":
-            return "violated"
-        idx = wait_states.index(state)
-        if sym == "slow":
-            return "moving" if idx == K - 1 else wait_states[idx + 1]
-        return "violated"
+            return "stopped_once" if sym == "near_stop" else "moving"
+        if state == "stopped_once":
+            return "stopped_twice" if sym == "near_stop" else "stopped_once"
+        return "stopped_twice"
 
     return automaton_specification(
         start="moving",
-        inputs={"slow", "fast"},
+        inputs={"moving", "near_stop"},
         transition=transition,
-        label=lambda s: s != "violated",
-        labeling_function=lambda row: "slow" if row["speed"] < STOP_THRESHOLD_MS else "fast",
+        label=lambda s: s != "stopped_twice",
+        labeling_function=lambda row: "near_stop" if row["speed"] < NEAR_STOP_MS else "moving",
     )
 
 
 def generate(scenario, seed):
     from utils import generate_traces
-    csv = os.path.join(TRACE_DIR, scenario, "traces.csv")
-    if not os.path.exists(csv):
-        generate_traces(seed=seed, save_dir=TRACE_DIR, expert=True,
-                        n=N_EPISODES, scenario=scenario, extra_obstacles=True)
-    return csv
+    generate_traces(seed=seed, save_dir=TRACE_DIR, model_path=None,
+                    expert=True, n=N_EPISODES, scenario=scenario, gif=False)
+    return os.path.join(TRACE_DIR, scenario, "traces.csv")
 
 
 @pytest.fixture(scope="module")
 def setup():
+    os.makedirs(TRACE_DIR, exist_ok=True)
     spec = make_spec()
     paths = {}
 
-    needed_prims = {p for _, comp_path in COMBINATIONS for p in comp_path}
-    needed_monos = {mono for mono, _ in COMBINATIONS}
-    all_seeds = {**PRIMITIVES, **MONOLITHICS}
-
-    for name in [("S"), ("X"), ("SX"), ("SXS"),
-                 ("C"), ("O"), ("SOC"), ("CSXS"), ("CXSXC")]:
-        if name not in needed_prims and name not in needed_monos:
-            continue
-        csv = generate(name, all_seeds[name])
+    for name, seed in PRIMITIVES.items():
+        csv = generate(name, seed)
         relabel_traces(csv, spec)
         paths[name] = csv
         rho = pd.read_csv(csv).groupby("trace_id")["label"].last().astype(float).mean()
-        kind = "primitive" if name in PRIMITIVES else "monolithic"
-        print(f"  [{kind}]  {name}: rho={rho:.4f}")
+        print(f"  [primitive]  {name}: rho={rho:.4f}")
+
+    for name, seed in MONOLITHICS.items():
+        csv = generate(name, seed)
+        relabel_traces(csv, spec)
+        paths[name] = csv
+        rho = pd.read_csv(csv).groupby("trace_id")["label"].last().astype(float).mean()
+        print(f"  [monolithic] {name}: rho={rho:.4f}")
 
     return paths, spec
 
@@ -122,7 +104,7 @@ def test_compositional_vs_monolithic(setup, mono_name, comp_path):
         comp_path, spec, features=["x", "y", "speed"], center_feat_idx=[0, 1],
     )
 
-    label = "→".join(comp_path)
+    label = f"{'→'.join(comp_path)}"
     print(f"\n  [{label}]")
     print(f"    Monolithic    rho({mono_name})  = {rho_mono:.4f} +/- {eps_mono:.4f}")
     print(f"    Compositional rho({label}) = {rho_comp:.4f} +/- {eps_comp:.4f}")
