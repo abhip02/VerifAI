@@ -52,6 +52,7 @@ behavior SlowToStopAndStay():
 scenario S():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DIST,
+              with speed Range(0, 10),
               with behavior SlowToStopAndStay()
         terminate after TICKS steps
     compose:
@@ -61,6 +62,7 @@ scenario S():
 scenario X():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DIST,
+              with speed Range(0, 10),
               with behavior HoldSpeedBehavior(9.0)
         terminate after TICKS steps
     compose:
@@ -70,6 +72,7 @@ scenario X():
 scenario C():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DIST,
+              with speed Range(0, 10),
               with behavior HoldSpeedBehavior(5.0)
         terminate after TICKS steps
     compose:
@@ -79,6 +82,7 @@ scenario C():
 scenario O():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DIST,
+              with speed Range(0, 10),
               with behavior HoldSpeedBehavior(8.0)
         terminate after TICKS steps
     compose:

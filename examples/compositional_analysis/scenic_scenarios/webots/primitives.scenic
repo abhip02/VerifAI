@@ -63,6 +63,7 @@ behavior OvertakeBehavior():
 scenario S():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DIST,
+              with speed Range(0, 10),
               with behavior SlowBehavior()
         terminate after TICKS steps
     compose:
@@ -73,6 +74,7 @@ scenario S():
 scenario X():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DIST,
+              with speed Range(0, 10),
               with behavior FastBehavior()
         terminate after TICKS steps
     compose:
@@ -83,6 +85,7 @@ scenario X():
 scenario C():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DIST,
+              with speed Range(0, 10),
               with behavior CruiseBehavior()
         terminate after TICKS steps
     compose:
@@ -93,6 +96,7 @@ scenario C():
 scenario O():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DIST,
+              with speed Range(0, 10),
               with behavior OvertakeBehavior()
         terminate after TICKS steps
     compose:

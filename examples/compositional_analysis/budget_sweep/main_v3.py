@@ -40,6 +40,15 @@ from examples.compositional_analysis.scenic_scenarios.specs import (  # noqa: E4
 _V3_SAVE_ROOT = Path("storage/budget_sweep_v3")
 
 
+# Per-primitive prewarm trim: drop the first N rows of each leaf trace so
+# the analyzer sees only the steady-state segment. Empirically (40-tick
+# trace, PID + with-speed-Range(0,10) spawn): X needs ~12 ticks to settle
+# at 9 m/s, O ~12 to settle at 8, C ~8 to settle at 5, S ~5 to settle at
+# ~0. Without this the first segment of each primitive trace is a
+# slow→fast ramp that pollutes the DFA labelling at every handoff.
+PREWARM_TRIM = {"S": 5, "X": 12, "C": 8, "O": 12}
+
+
 def _kw(
     scenic_file: Path,
     composite: str,
@@ -60,6 +69,7 @@ def _kw(
         features=["x", "y", "speed"],
         center_feat_idx=[0, 1],
         delta=0.05,
+        prewarm_trim=dict(PREWARM_TRIM),
         save_dir=_V3_SAVE_ROOT,
     )
 
