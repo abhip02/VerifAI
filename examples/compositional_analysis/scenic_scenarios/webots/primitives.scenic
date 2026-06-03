@@ -49,15 +49,15 @@ behavior SlowBehavior():
 
 
 behavior FastBehavior():
-    do HoldSpeedBehavior(9.0)
+    do HoldSpeedBehavior(Range(7.0, 10.0))
 
 
 behavior CruiseBehavior():
-    do HoldSpeedBehavior(5.0)
+    do HoldSpeedBehavior(Range(2.5, 7.5))
 
 
 behavior OvertakeBehavior():
-    do HoldSpeedBehavior(8.0)
+    do HoldSpeedBehavior(Range(6.5, 9.0))
 
 
 scenario S():

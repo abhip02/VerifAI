@@ -71,7 +71,7 @@ scenario X():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DIST,
               with speed Range(0, 10),
-              with behavior HoldSpeedBehavior(9.0)
+              with behavior HoldSpeedBehavior(Range(7.0, 10.0))
         terminate after TICKS steps
     compose:
         while True:
@@ -81,7 +81,7 @@ scenario C():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DIST,
               with speed Range(0, 10),
-              with behavior HoldSpeedBehavior(5.0)
+              with behavior HoldSpeedBehavior(Range(2.5, 7.5))
         terminate after TICKS steps
     compose:
         while True:
@@ -91,7 +91,7 @@ scenario O():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DIST,
               with speed Range(0, 10),
-              with behavior HoldSpeedBehavior(8.0)
+              with behavior HoldSpeedBehavior(Range(6.5, 9.0))
         terminate after TICKS steps
     compose:
         while True:
@@ -106,11 +106,11 @@ scenario Main():
         do C()
 
 behavior MonoCXSXCBehavior():
-    do HoldSpeedBehavior(5.0) for TICKS steps
-    do HoldSpeedBehavior(9.0) for TICKS steps
+    do HoldSpeedBehavior(Range(2.5, 7.5)) for TICKS steps
+    do HoldSpeedBehavior(Range(7.0, 10.0)) for TICKS steps
     do SlowToStopAndHold()
-    do HoldSpeedBehavior(9.0) for TICKS steps
-    do HoldSpeedBehavior(5.0) for TICKS steps
+    do HoldSpeedBehavior(Range(7.0, 10.0)) for TICKS steps
+    do HoldSpeedBehavior(Range(2.5, 7.5)) for TICKS steps
 
 scenario MonoCXSXC():
     setup:
