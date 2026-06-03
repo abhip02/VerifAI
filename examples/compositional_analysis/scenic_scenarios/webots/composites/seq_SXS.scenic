@@ -1,13 +1,7 @@
-# Webots primitives — S, X, C, O on simple.wbt.
-# Same scenario/behavior structure as the MetaDrive sibling; only the
-# `model` line and spawn-lane discovery differ. PID closed-loop speed
-# control bypasses RegulatedControlAction's 0.5-throttle clamp so the
-# X / O primitives can clear the FAST_THRESHOLD=7.0 m/s labelling boundary.
-
 param timestep = 0.1
 
 from scenic.simulators.webots.road.world import setLocalWorld
-setLocalWorld(__file__, 'world/simple.wbt')
+setLocalWorld(__file__, '../world/simple.wbt')
 from scenic.simulators.webots.road.model import *
 
 from scenic.domains.driving.actions import (
@@ -22,7 +16,6 @@ uberSpawnPoint = startLane.centerline[5]
 DIST  = Range(0, 4)
 TICKS = 40
 
-
 behavior HoldSpeedBehavior(target_speed):
     lon_controller, _ = simulation().getLaneFollowingControllers(self)
     while True:
@@ -34,7 +27,7 @@ behavior HoldSpeedBehavior(target_speed):
             take SetThrottleAction(0), SetBrakeAction(min(-u, 1.0)), SetSteerAction(0)
 
 
-behavior SlowBehavior():
+behavior SlowToStopAndHold():
     lon_controller, _ = simulation().getLaneFollowingControllers(self)
     while self.speed is None or self.speed > 0.4:
         current = self.speed if self.speed is not None else 0
@@ -43,58 +36,73 @@ behavior SlowBehavior():
             take SetThrottleAction(min(u, 1.0)), SetBrakeAction(0), SetSteerAction(0)
         else:
             take SetThrottleAction(0), SetBrakeAction(min(-u, 1.0)), SetSteerAction(0)
-    take SetThrottleAction(0), SetBrakeAction(1.0), SetSteerAction(0)
+    for i in range(5):
+        take SetThrottleAction(0), SetBrakeAction(1.0), SetSteerAction(0)
+
+
+behavior SlowToStopAndStay():
+    do SlowToStopAndHold()
     while True:
-        wait
+        take SetThrottleAction(0), SetBrakeAction(1.0), SetSteerAction(0)
 
 
-behavior FastBehavior():
-    do HoldSpeedBehavior(9.0)
-
-
-behavior CruiseBehavior():
-    do HoldSpeedBehavior(5.0)
-
-
-behavior OvertakeBehavior():
-    do HoldSpeedBehavior(8.0)
-
-
+# Per-primitive leaf scenarios — each spawns its own ego and runs one
+# closed-loop segment for TICKS steps. Mirror the bodies in
+# ../primitives.scenic exactly.
 scenario S():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DIST,
-              with behavior SlowBehavior()
+              with behavior SlowToStopAndStay()
         terminate after TICKS steps
     compose:
         while True:
             wait
-
 
 scenario X():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DIST,
-              with behavior FastBehavior()
+              with behavior HoldSpeedBehavior(9.0)
         terminate after TICKS steps
     compose:
         while True:
             wait
-
 
 scenario C():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DIST,
-              with behavior CruiseBehavior()
+              with behavior HoldSpeedBehavior(5.0)
         terminate after TICKS steps
     compose:
         while True:
             wait
 
-
 scenario O():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for DIST,
-              with behavior OvertakeBehavior()
+              with behavior HoldSpeedBehavior(8.0)
         terminate after TICKS steps
+    compose:
+        while True:
+            wait
+
+scenario Main():
+    compose:
+        do S()
+        do X()
+        do S()
+
+behavior MonoSXSBehavior():
+    do SlowToStopAndHold()
+    do HoldSpeedBehavior(9.0) for TICKS steps
+    do SlowToStopAndHold()
+    while True:
+        take SetThrottleAction(0), SetBrakeAction(1.0), SetSteerAction(0)
+
+scenario MonoSXS():
+    setup:
+        ego = new Car following roadDirection from uberSpawnPoint for DIST,
+              with behavior MonoSXSBehavior()
+        terminate after 120 steps
     compose:
         while True:
             wait
