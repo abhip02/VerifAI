@@ -106,10 +106,16 @@ scenario Main():
             O(): 1,
         }
 
-# Pick one of the 6 speed permutations (C=5, X=9, O=8) at scene creation.
-# MonoBehavior chains the three speed segments on one ego in that order.
-perm_speeds = Uniform((5.0, 9.0, 8.0), (5.0, 8.0, 9.0), (9.0, 5.0, 8.0),
-                     (9.0, 8.0, 5.0), (8.0, 5.0, 9.0), (8.0, 9.0, 5.0))
+# Sample one speed per segment-type from the SAME Range distribution the
+# per-primitive scenarios use, then uniformly pick one of the 6 orderings.
+# This matches comp's joint distribution exactly so ρ̂_mono is a faithful
+# ground truth for ρ̂_comp on this branching composition.
+c_speed = Range(2.5, 7.5)
+x_speed = Range(7.0, 10.0)
+o_speed = Range(6.5, 9.0)
+perm_speeds = Uniform((c_speed, x_speed, o_speed), (c_speed, o_speed, x_speed),
+                     (x_speed, c_speed, o_speed), (x_speed, o_speed, c_speed),
+                     (o_speed, c_speed, x_speed), (o_speed, x_speed, c_speed))
 
 behavior MonoSShuffleCXOBehavior(speed_a, speed_b, speed_c):
     do SlowToStopAndHold()

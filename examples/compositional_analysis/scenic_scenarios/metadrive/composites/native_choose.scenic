@@ -106,7 +106,9 @@ scenario Main():
             O(): 1,
         }
 
-chosen_speed = Uniform(5.0, 9.0, 8.0)
+# Match per-segment primitive distributions: choose one branch uniformly,
+# then sample speed from the same Range as the corresponding C/X/O scenario.
+chosen_speed = Uniform(Range(2.5, 7.5), Range(7.0, 10.0), Range(6.5, 9.0))
 
 behavior MonoSChooseCXOBehavior(target):
     do SlowToStopAndHold()

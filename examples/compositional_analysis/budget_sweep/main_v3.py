@@ -141,25 +141,66 @@ def _short_comp_name(file_rel: str) -> str:
 def _build_curated_experiments() -> list[tuple[str, SweepConfig]]:
     cells: list[tuple[str, str, str, str, str, int]] = [
         # (cell-name suffix, spec_name, scenic_file, composite, mono_name, mono_steps)
-        # ★ Headline non-Markovian #1: comp=0.667, mono=0.600, |Δρ̂|=0.07 at T=180s
+        # ★ Headline non-Markovian × sequential composition: handoff-state
+        # stitching exercised. comp=0.667, mono=0.600, |Δρ̂|=0.07 at T=180s.
+        # (
+        #    "fast_twice__CSXS",
+        #    "fast_twice",
+        #    "composites/seq_CSXS.scenic",
+        #    "Main",
+        #    "MonoCSXS",
+        #    160,
+        # ),
+        # ★ Native `do choose` — exercises path-weighted reuse across 3 branches.
+        # Paired with Markovian max_speed because fast_twice/tollgate saturate
+        # structurally on a 2-segment S→one-of-{C,X,O} trace (no fast→slow→fast
+        # possible; S already satisfies tollgate K=1). max_speed lands in (0,1)
+        # because X∈[7,10] and O∈[6.5,9] sometimes exceed the 8.5 m/s threshold.
         (
-            "fast_twice__CSXS",
-            "fast_twice",
-            "composites/seq_CSXS.scenic",
+            "max_speed__choose",
+            "max_speed",
+            "composites/native_choose.scenic",
             "Main",
-            "MonoCSXS",
+            "MonoSChooseCXO",
+            80,
+        ),
+        # ★ Native `do shuffle` — exercises path-weighted reuse across the 6
+        # permutations of {C, X, O}. Same Markovian spec for the same
+        # saturation reason; 4-segment trace amplifies the comp speedup over
+        # mono (mono must draw a full S+perm trajectory per sample).
+        (
+            "max_speed__shuffle",
+            "max_speed",
+            "composites/native_shuffle.scenic",
+            "Main",
+            "MonoSShuffleCXO",
             160,
         ),
-        # Non-Markovian #2: comp=0.958, mono=1.000 — tollgate K=1 small under-estimate gap
-        ("tollgate__SX", "tollgate", "composites/seq_SX.scenic", "Main", "MonoSX", 80),
-        # Markovian baseline: comp=0.427, mono=0.308, |Δρ̂|=0.12 within Hoeffding ε
+        # ★ Non-Markovian × `do choose`. Structurally saturated: only one
+        # follow-on segment, so the fast→slow→fast pattern is impossible
+        # and ρ̂≈0 on both methods. Kept as a pipeline-agreement check —
+        # if comp and mono disagree here, something is wrong with the
+        # comp branch-weighting because mono can only produce ρ̂=0.
         (
-            "max_speed__SX",
-            "max_speed",
-            "composites/seq_SX.scenic",
+            "fast_twice__choose",
+            "fast_twice",
+            "composites/native_choose.scenic",
             "Main",
-            "MonoSX",
+            "MonoSChooseCXO",
             80,
+        ),
+        # ★ Non-Markovian × `do shuffle` — the real second non-Markovian
+        # cell. Of the 6 perms of {C,X,O}, exactly X→C→O and O→C→X
+        # produce fast→slow→fast, so the spec is non-trivially
+        # satisfied with nominal weight 2/6 ≈ 0.33. Discriminating both
+        # on the branching structure and on the temporal pattern.
+        (
+            "fast_twice__shuffle",
+            "fast_twice",
+            "composites/native_shuffle.scenic",
+            "Main",
+            "MonoSShuffleCXO",
+            160,
         ),
     ]
     spec_map = {
