@@ -78,12 +78,12 @@ def _kw(
 # (composite-file relpath within a backend subtree, composite name, mono name,
 #  per-primitive max_steps, monolithic max_steps)
 COMPOSITES: list[tuple[str, str, str, int, int]] = [
-    ("composites/seq_SX.scenic",         "Main", "MonoSX",          40,  80),
-    ("composites/seq_SXS.scenic",        "Main", "MonoSXS",         40, 120),
-    ("composites/seq_SOC.scenic",        "Main", "MonoSOC",         40, 120),
-    ("composites/seq_CSXS.scenic",       "Main", "MonoCSXS",        40, 160),
-    ("composites/seq_CXSXC.scenic",      "Main", "MonoCXSXC",       40, 200),
-    ("composites/native_choose.scenic",  "Main", "MonoSChooseCXO",  40,  80),
+    ("composites/seq_SX.scenic", "Main", "MonoSX", 40, 80),
+    ("composites/seq_SXS.scenic", "Main", "MonoSXS", 40, 120),
+    ("composites/seq_SOC.scenic", "Main", "MonoSOC", 40, 120),
+    ("composites/seq_CSXS.scenic", "Main", "MonoCSXS", 40, 160),
+    ("composites/seq_CXSXC.scenic", "Main", "MonoCXSXC", 40, 200),
+    ("composites/native_choose.scenic", "Main", "MonoSChooseCXO", 40, 80),
     ("composites/native_shuffle.scenic", "Main", "MonoSShuffleCXO", 40, 160),
 ]
 
@@ -93,11 +93,11 @@ COMPOSITES: list[tuple[str, str, str, int, int]] = [
 # ρ̂_comp ≈ ρ̂_mono across all 7 composites — a gap there would indicate
 # a pipeline bug; agreement there validates the rest of the methodology.
 ASSIGNMENTS: list[tuple[str, str, callable]] = [
-    ("metadrive", "tollgate",    spec_tollgate),
-    ("metadrive", "two_stops",   spec_two_stops),
-    ("metadrive", "fast_twice",  spec_fast_twice),
-    ("metadrive", "max_speed",   spec_max_speed),
-    ("webots",    "slow2_accel", spec_slow2_accel),
+    ("metadrive", "tollgate", spec_tollgate),
+    ("metadrive", "two_stops", spec_two_stops),
+    ("metadrive", "fast_twice", spec_fast_twice),
+    ("metadrive", "max_speed", spec_max_speed),
+    ("webots", "slow2_accel", spec_slow2_accel),
 ]
 
 
@@ -106,8 +106,10 @@ def _build_experiments() -> list[tuple[str, SweepConfig]]:
     out: list[tuple[str, SweepConfig]] = []
     for backend, spec_name, spec_factory in ASSIGNMENTS:
         if backend == "webots" and not have_webots:
-            print(f"[main_v3] skipping webots row '{spec_name}': "
-                  "`webots` binary not on PATH")
+            print(
+                f"[main_v3] skipping webots row '{spec_name}': "
+                "`webots` binary not on PATH"
+            )
             continue
         for file_rel, comp_name, mono_name, prim_steps, mono_steps in COMPOSITES:
             name = f"{backend}__{spec_name}__{_short_comp_name(file_rel)}"
@@ -128,13 +130,80 @@ def _build_experiments() -> list[tuple[str, SweepConfig]]:
 def _short_comp_name(file_rel: str) -> str:
     base = Path(file_rel).stem  # e.g. seq_SX or native_choose
     if base.startswith("seq_"):
-        return base[len("seq_"):]
+        return base[len("seq_") :]
     if base.startswith("native_"):
-        return base[len("native_"):]
+        return base[len("native_") :]
     return base
 
 
-EXPERIMENTS: list[tuple[str, SweepConfig]] = _build_experiments()
+# ---------------------------------------------------------------------------
+# Curated cells — the 2 best non-Markovian + 1 Markovian-baseline (spec,
+# composite) pairs identified by smoke testing (see PRELIM_RESULTS.md).
+# These three are the only cells we have empirical evidence land in the
+# discriminating (0.1, 0.9) band on at least one method, so they're the
+# right targets for the fixed-time-budget figure. Use these instead of
+# the full 28-cell cross-product (built by _build_experiments) to keep
+# the unattended sweep focused (~3 CPU-h instead of 14).
+# ---------------------------------------------------------------------------
+
+
+def _build_curated_experiments() -> list[tuple[str, SweepConfig]]:
+    cells: list[tuple[str, str, str, str, str, int]] = [
+        # (cell-name suffix, spec_name, scenic_file, composite, mono_name, mono_steps)
+        # ★ Headline non-Markovian #1: comp=0.667, mono=0.600, |Δρ̂|=0.07 at T=180s
+        (
+            "fast_twice__CSXS",
+            "fast_twice",
+            "composites/seq_CSXS.scenic",
+            "Main",
+            "MonoCSXS",
+            160,
+        ),
+        # Non-Markovian #2: comp=0.958, mono=1.000 — tollgate K=1 small under-estimate gap
+        ("tollgate__SX", "tollgate", "composites/seq_SX.scenic", "Main", "MonoSX", 80),
+        # Markovian baseline: comp=0.427, mono=0.308, |Δρ̂|=0.12 within Hoeffding ε
+        (
+            "max_speed__SX",
+            "max_speed",
+            "composites/seq_SX.scenic",
+            "Main",
+            "MonoSX",
+            80,
+        ),
+    ]
+    spec_map = {
+        "tollgate": spec_tollgate,
+        "two_stops": spec_two_stops,
+        "fast_twice": spec_fast_twice,
+        "max_speed": spec_max_speed,
+        "slow2_accel": spec_slow2_accel,
+    }
+    out: list[tuple[str, SweepConfig]] = []
+    for suffix, spec_name, file_rel, comp_name, mono_name, mono_steps in cells:
+        backend = "metadrive"  # all curated cells are metadrive
+        name = f"{backend}__{suffix}"
+        cfg = SweepConfig(
+            spec=spec_map[spec_name](),
+            **_kw(
+                SCEN_DIR / backend / file_rel,
+                comp_name,
+                mono_name,
+                max_steps_primitive=40,
+                max_steps_mono=mono_steps,
+            ),
+        )
+        out.append((name, cfg))
+    return out
+
+
+# Active list run by main(). Swap to `_build_experiments()` for the full
+# 4×7=28 cross-product (mostly saturated-by-construction; see PRELIM_RESULTS.md).
+EXPERIMENTS: list[tuple[str, SweepConfig]] = _build_curated_experiments()
+
+# Full cross-product kept available but inactive (call _build_experiments()
+# at module level to populate). The 28 cells include many saturated-by-
+# construction cells (e.g. fast_twice__CXSXC is always-violated, structural).
+ALL_EXPERIMENTS: list[tuple[str, SweepConfig]] = _build_experiments()
 
 
 def _push_to_wandb(
