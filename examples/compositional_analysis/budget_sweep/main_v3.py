@@ -1,9 +1,11 @@
-"""v3 budget sweep — 4 specs × 7 composites = 28 cells on the new
-Scenic v3 scenario family (see SCENIC_SCENARIOS.md §6).
+"""v3 budget sweep — MetaDrive only, curated 3-cell experiment list.
 
-3 specs run on MetaDrive (Town07); the 1 Webots spec row is skipped
-when the Webots binary is not on PATH — per SCENIC_SCENARIOS.md §8
-risk #4 and CLAUDE.md's guardrails.
+Active EXPERIMENTS is a focused subset of 3 (spec, composite) pairs
+chosen from the 4×7=28 cross-product based on smoke evidence in
+PRELIM_RESULTS.md. Webots is deferred — its scenic backend requires
+running inside a Webots Supervisor controller and is incompatible
+with the BudgetSweep worker model; see PRELIM_RESULTS.md §"Open
+issues" #3 for the integration scope.
 
 Sibling of main.py (which holds the v2 wander record); intentionally
 duplicates the runner/W&B-push wiring so the two sweeps stay
@@ -14,7 +16,6 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import os
-import shutil
 from datetime import datetime
 from pathlib import Path
 
@@ -33,7 +34,6 @@ from examples.compositional_analysis.scenic_scenarios.specs import (  # noqa: E4
     spec_tollgate,
     spec_two_stops,
     spec_fast_twice,
-    spec_slow2_accel,
     spec_max_speed,
 )
 
@@ -87,30 +87,21 @@ COMPOSITES: list[tuple[str, str, str, int, int]] = [
     ("composites/native_shuffle.scenic", "Main", "MonoSShuffleCXO", 40, 160),
 ]
 
-# 3 non-Markovian specs on MetaDrive + 1 Markovian agreement-baseline spec
-# on MetaDrive + 1 non-Markovian spec on Webots → 5×7 = 35 cells total.
-# The Markovian baseline (spec_max_speed) is expected to show
-# ρ̂_comp ≈ ρ̂_mono across all 7 composites — a gap there would indicate
-# a pipeline bug; agreement there validates the rest of the methodology.
+# MetaDrive-only assignments. The Markovian baseline (spec_max_speed) is
+# expected to show ρ̂_comp ≈ ρ̂_mono across all composites — a gap there
+# would indicate a pipeline bug; agreement there validates the rest of
+# the methodology.
 ASSIGNMENTS: list[tuple[str, str, callable]] = [
     ("metadrive", "tollgate", spec_tollgate),
     ("metadrive", "two_stops", spec_two_stops),
     ("metadrive", "fast_twice", spec_fast_twice),
     ("metadrive", "max_speed", spec_max_speed),
-    ("webots", "slow2_accel", spec_slow2_accel),
 ]
 
 
 def _build_experiments() -> list[tuple[str, SweepConfig]]:
-    have_webots = shutil.which("webots") is not None
     out: list[tuple[str, SweepConfig]] = []
     for backend, spec_name, spec_factory in ASSIGNMENTS:
-        if backend == "webots" and not have_webots:
-            print(
-                f"[main_v3] skipping webots row '{spec_name}': "
-                "`webots` binary not on PATH"
-            )
-            continue
         for file_rel, comp_name, mono_name, prim_steps, mono_steps in COMPOSITES:
             name = f"{backend}__{spec_name}__{_short_comp_name(file_rel)}"
             cfg = SweepConfig(
@@ -176,7 +167,6 @@ def _build_curated_experiments() -> list[tuple[str, SweepConfig]]:
         "two_stops": spec_two_stops,
         "fast_twice": spec_fast_twice,
         "max_speed": spec_max_speed,
-        "slow2_accel": spec_slow2_accel,
     }
     out: list[tuple[str, SweepConfig]] = []
     for suffix, spec_name, file_rel, comp_name, mono_name, mono_steps in cells:
