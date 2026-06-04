@@ -12,13 +12,26 @@ from __future__ import annotations
 from verifai.monitor import automaton_specification
 
 
+# v3 calibration: the original dfa_tests thresholds (STOP=3.5, FAST=7.0,
+# K_WAIT=3, FAST_MS=8.0) were tuned for the wander_scenarios speed regime
+# (random throttle, ~3-14 m/s steady-state). Our v3 PID + per-trace
+# Range-sampled targets put C in 2.5-7.5 m/s and X in 7-10 m/s, so the
+# original thresholds saturate most cells at ρ̂ ∈ {0, 1}. The values
+# below are recalibrated so per-cell ρ̂ lands in a discriminating band
+# without changing what each spec is *checking*.
 STOP_THRESHOLD_MS = 3.5
-REQUIRED_WAIT_STEPS = 3
+REQUIRED_WAIT_STEPS = 1   # was 3 — K=1 means one slow tick then fast is OK,
+                           # two-or-more slow then fast is the gate; with v3
+                           # primitives this lands ρ̂_comp in (0, 1).
 NEAR_STOP_MS = 3.5
-HIGH_SPEED_MS = 7.0
+HIGH_SPEED_MS = 6.0       # was 7.0 — lowered so the v3 X/O primitives
+                           # (Range(7-10)/(6.5-9)) consistently hit `fast`
+                           # while C (Range(2.5-7.5)) sometimes does too,
+                           # giving cross-segment fast→slow→fast patterns.
 LOW_SPEED_MS = 3.5
 SLOW_MS = 3.5
-FAST_MS = 8.0
+FAST_MS = 7.5             # was 8.0 — same recalibration logic for slow2_accel
+MAX_SPEED_BASELINE = 8.5  # used by the Markovian baseline spec_max_speed
 
 
 def spec_tollgate():
@@ -103,6 +116,31 @@ def spec_fast_twice():
         transition=transition,
         label=lambda s: s != "violated",
         labeling_function=_fast_twice_sym,
+    )
+
+
+def spec_max_speed(threshold=MAX_SPEED_BASELINE):
+    """Markovian baseline: speed never exceeds `threshold`.
+
+    Two-state DFA (ok → ok if below, ok → violated absorbing if at-or-above).
+    The predicate is per-tick with no inter-tick state, so the DFA verdict
+    is the AND of per-tick predicates — there's no handoff-state dependency
+    for the compositional method to miss. This is the agreement-baseline
+    cell: ρ̂_comp ≈ ρ̂_mono is expected here, and a gap would indicate a
+    pipeline bug rather than the genuine non-Markovian limitation seen on
+    spec_tollgate / spec_fast_twice / spec_slow2_accel.
+    """
+    def transition(state, sym):
+        if state == "violated":
+            return "violated"
+        return "violated" if sym == "high" else "ok"
+
+    return automaton_specification(
+        start="ok",
+        inputs={"high", "low"},
+        transition=transition,
+        label=lambda s: s != "violated",
+        labeling_function=lambda row: "high" if row["speed"] >= threshold else "low",
     )
 
 

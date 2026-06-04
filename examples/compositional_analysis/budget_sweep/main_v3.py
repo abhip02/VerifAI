@@ -34,6 +34,7 @@ from examples.compositional_analysis.scenic_scenarios.specs import (  # noqa: E4
     spec_two_stops,
     spec_fast_twice,
     spec_slow2_accel,
+    spec_max_speed,
 )
 
 
@@ -86,11 +87,16 @@ COMPOSITES: list[tuple[str, str, str, int, int]] = [
     ("composites/native_shuffle.scenic", "Main", "MonoSShuffleCXO", 40, 160),
 ]
 
-# 3 specs on MetaDrive + 1 spec on Webots → 4×7 = 28 cells total.
+# 3 non-Markovian specs on MetaDrive + 1 Markovian agreement-baseline spec
+# on MetaDrive + 1 non-Markovian spec on Webots → 5×7 = 35 cells total.
+# The Markovian baseline (spec_max_speed) is expected to show
+# ρ̂_comp ≈ ρ̂_mono across all 7 composites — a gap there would indicate
+# a pipeline bug; agreement there validates the rest of the methodology.
 ASSIGNMENTS: list[tuple[str, str, callable]] = [
     ("metadrive", "tollgate",    spec_tollgate),
     ("metadrive", "two_stops",   spec_two_stops),
     ("metadrive", "fast_twice",  spec_fast_twice),
+    ("metadrive", "max_speed",   spec_max_speed),
     ("webots",    "slow2_accel", spec_slow2_accel),
 ]
 
