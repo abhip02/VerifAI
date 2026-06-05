@@ -35,6 +35,8 @@ from examples.compositional_analysis.scenic_scenarios.specs import (  # noqa: E4
     spec_two_stops,
     spec_fast_twice,
     spec_max_speed,
+    spec_completes_turn,
+    spec_k_intersection,
 )
 
 
@@ -139,67 +141,42 @@ def _short_comp_name(file_rel: str) -> str:
 
 
 def _build_curated_experiments() -> list[tuple[str, SweepConfig]]:
-    cells: list[tuple[str, str, str, str, str, int]] = [
-        # (cell-name suffix, spec_name, scenic_file, composite, mono_name, mono_steps)
-        # ★ Headline non-Markovian × sequential composition: handoff-state
-        # stitching exercised. comp=0.667, mono=0.600, |Δρ̂|=0.07 at T=180s.
-        # (
-        #    "fast_twice__CSXS",
-        #    "fast_twice",
-        #    "composites/seq_CSXS.scenic",
-        #    "Main",
-        #    "MonoCSXS",
-        #    160,
-        # ),
-        # ★ Native `do choose` — exercises path-weighted reuse across 3 branches.
-        # Paired with Markovian max_speed because fast_twice/tollgate saturate
-        # structurally on a 2-segment S→one-of-{C,X,O} trace (no fast→slow→fast
-        # possible; S already satisfies tollgate K=1). max_speed lands in (0,1)
-        # because X∈[7,10] and O∈[6.5,9] sometimes exceed the 8.5 m/s threshold.
+    # (suffix, spec_name, scenic_file, composite, mono_name,
+    #  max_steps_primitive, max_steps_mono)
+    cells: list[tuple[str, str, str, str, str, int, int]] = [
+        # ★ IntChoose × φ_K^turn (non-Markovian, K=10 ticks). Same
+        # composite, bounded-time turn-completion spec: once the ego
+        # enters the turning band (|Δh| ≥ π/4) it must reach turn
+        # completion (|Δh| ≥ π/2) within K=10 simulator ticks. The DFA's
+        # in_turn_1 → … → in_turn_K → completed chain is the explicitly
+        # non-Markovian element. Straight branch trivially passes;
+        # TurnL/TurnR pass iff the arc π/4→π/2 is traversed in ≤K ticks
+        # (UBER_SPEED-dependent). Nominal ρ̂ ≈ 0.42–0.50; smoke at 120s
+        # had comp=0.444, mono=0.500, |Δρ̂|=0.06 — methods agree.
         (
-            "max_speed__choose",
-            "max_speed",
-            "composites/native_choose.scenic",
+            "k_intersection__maneuver_choose",
+            "k_intersection",
+            "composites/maneuver_choose.scenic",
             "Main",
-            "MonoSChooseCXO",
-            80,
-        ),
-        # ★ Native `do shuffle` — exercises path-weighted reuse across the 6
-        # permutations of {C, X, O}. Same Markovian spec for the same
-        # saturation reason; 4-segment trace amplifies the comp speedup over
-        # mono (mono must draw a full S+perm trajectory per sample).
-        (
-            "max_speed__shuffle",
-            "max_speed",
-            "composites/native_shuffle.scenic",
-            "Main",
-            "MonoSShuffleCXO",
+            "MonoApproachChoose",
+            160,
             160,
         ),
-        # ★ Non-Markovian × `do choose`. Structurally saturated: only one
-        # follow-on segment, so the fast→slow→fast pattern is impossible
-        # and ρ̂≈0 on both methods. Kept as a pipeline-agreement check —
-        # if comp and mono disagree here, something is wrong with the
-        # comp branch-weighting because mono can only produce ρ̂=0.
+        # ★ IntChoose × φ_straight (Markovian). 4-way intersection
+        # composite with `do choose { TurnL, TurnR, Straight }` over
+        # full-trajectory primitives (each spawns at DIST_APPROACH and
+        # runs [startLane, connecting, end]). The Markovian heading-
+        # safety spec is violated the moment |Δh - Δh₀| ≥ π/4: only the
+        # Straight branch stays in `ok`. Nominal ρ̂ = 1/3 under uniform
+        # choose. Smoke confirms comp pinned at 0.333 across budgets;
+        # mono converges from above (0.500 at n=6, will pull to 0.333).
         (
-            "fast_twice__choose",
-            "fast_twice",
-            "composites/native_choose.scenic",
+            "completes_turn__maneuver_choose",
+            "completes_turn",
+            "composites/maneuver_choose.scenic",
             "Main",
-            "MonoSChooseCXO",
-            80,
-        ),
-        # ★ Non-Markovian × `do shuffle` — the real second non-Markovian
-        # cell. Of the 6 perms of {C,X,O}, exactly X→C→O and O→C→X
-        # produce fast→slow→fast, so the spec is non-trivially
-        # satisfied with nominal weight 2/6 ≈ 0.33. Discriminating both
-        # on the branching structure and on the temporal pattern.
-        (
-            "fast_twice__shuffle",
-            "fast_twice",
-            "composites/native_shuffle.scenic",
-            "Main",
-            "MonoSShuffleCXO",
+            "MonoApproachChoose",
+            160,
             160,
         ),
     ]
@@ -208,9 +185,19 @@ def _build_curated_experiments() -> list[tuple[str, SweepConfig]]:
         "two_stops": spec_two_stops,
         "fast_twice": spec_fast_twice,
         "max_speed": spec_max_speed,
+        "completes_turn": spec_completes_turn,
+        "k_intersection": spec_k_intersection,
     }
     out: list[tuple[str, SweepConfig]] = []
-    for suffix, spec_name, file_rel, comp_name, mono_name, mono_steps in cells:
+    for (
+        suffix,
+        spec_name,
+        file_rel,
+        comp_name,
+        mono_name,
+        prim_steps,
+        mono_steps,
+    ) in cells:
         backend = "metadrive"  # all curated cells are metadrive
         name = f"{backend}__{suffix}"
         cfg = SweepConfig(
@@ -219,7 +206,7 @@ def _build_curated_experiments() -> list[tuple[str, SweepConfig]]:
                 SCEN_DIR / backend / file_rel,
                 comp_name,
                 mono_name,
-                max_steps_primitive=40,
+                max_steps_primitive=prim_steps,
                 max_steps_mono=mono_steps,
             ),
         )

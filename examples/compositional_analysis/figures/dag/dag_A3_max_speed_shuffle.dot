@@ -1,0 +1,37 @@
+digraph native_shuffle {
+  rankdir=TB;
+  bgcolor="white";
+  nodesep=0.35;
+  ranksep=0.45;
+  node [fontname="Helvetica"];
+  edge [fontname="Helvetica", fontsize=11];
+  Main [label="Main", shape=box, style="rounded", color="#5a4ea8", fontcolor="black", width=1.0];
+  opS [label="do", shape=box, style="rounded,filled", fillcolor="#dcd5f0", color="#5a4ea8", fontcolor="black"];
+  leafS [label="S", shape=box, style="rounded", color="#5a4ea8", fontcolor="black", width=0.7];
+  opShuf [label="do shuffle", shape=box, style="rounded,filled", fillcolor="#dcd5f0", color="#5a4ea8", fontcolor="black"];
+  Main -> opS [style=solid, color="black", arrowhead=normal];
+  Main -> opShuf [style=solid, color="black", arrowhead=normal];
+  opS -> leafS [style=solid, color="black", arrowhead=normal];
+  opS -> opShuf [style=dashed, color="#5a8fd6", arrowhead=normal];
+  brC [label="C", shape=ellipse, style="dashed", color="#5a4ea8", fontcolor="black", width=0.55, height=0.55];
+  wC [label="1", shape=plaintext, fontcolor="#777777", fontsize=11];
+  leafC [label="C", shape=box, style="rounded", color="#5a4ea8", fontcolor="black", width=0.7];
+  opShuf -> brC [style=solid, color="#777777", arrowhead=normal];
+  brC -> leafC [style=solid, color="#777777", arrowhead=normal];
+  brC -> wC [style=invis];
+  brX [label="X", shape=ellipse, style="dashed", color="#5a4ea8", fontcolor="black", width=0.55, height=0.55];
+  wX [label="1", shape=plaintext, fontcolor="#777777", fontsize=11];
+  leafX [label="X", shape=box, style="rounded", color="#5a4ea8", fontcolor="black", width=0.7];
+  opShuf -> brX [style=solid, color="#777777", arrowhead=normal];
+  brX -> leafX [style=solid, color="#777777", arrowhead=normal];
+  brX -> wX [style=invis];
+  brO [label="O", shape=ellipse, style="dashed", color="#5a4ea8", fontcolor="black", width=0.55, height=0.55];
+  wO [label="1", shape=plaintext, fontcolor="#777777", fontsize=11];
+  leafO [label="O", shape=box, style="rounded", color="#5a4ea8", fontcolor="black", width=0.7];
+  opShuf -> brO [style=solid, color="#777777", arrowhead=normal];
+  brO -> leafO [style=solid, color="#777777", arrowhead=normal];
+  brO -> wO [style=invis];
+  { rank=same; opS; opShuf; }
+  { rank=same; brC; brX; brO; }
+  { rank=same; leafS; leafC; leafX; leafO; }
+}

@@ -1,0 +1,31 @@
+digraph maneuver_choose {
+  rankdir=TB;
+  bgcolor="white";
+  nodesep=0.35;
+  ranksep=0.45;
+  node [fontname="Helvetica"];
+  edge [fontname="Helvetica", fontsize=11];
+  Main [label="Main", shape=box, style="rounded", color="#5a4ea8", fontcolor="black", width=1.0];
+  opChoose [label="do choose", shape=box, style="rounded,filled", fillcolor="#dcd5f0", color="#5a4ea8", fontcolor="black"];
+  Main -> opChoose [style=solid, color="black", arrowhead=normal];
+  brL [label="TurnL", shape=ellipse, style="dashed", color="#5a4ea8", fontcolor="black", width=1.0, height=1.0];
+  wL [label="1", shape=plaintext, fontcolor="#777777", fontsize=11];
+  leafL [label="TurnL", shape=box, style="rounded", color="#5a4ea8", fontcolor="black", width=0.7];
+  opChoose -> brL [style=solid, color="#777777", arrowhead=normal];
+  brL -> leafL [style=solid, color="#777777", arrowhead=normal];
+  brL -> wL [style=invis];
+  brR [label="TurnR", shape=ellipse, style="dashed", color="#5a4ea8", fontcolor="black", width=1.0, height=1.0];
+  wR [label="1", shape=plaintext, fontcolor="#777777", fontsize=11];
+  leafR [label="TurnR", shape=box, style="rounded", color="#5a4ea8", fontcolor="black", width=0.7];
+  opChoose -> brR [style=solid, color="#777777", arrowhead=normal];
+  brR -> leafR [style=solid, color="#777777", arrowhead=normal];
+  brR -> wR [style=invis];
+  brSt [label="Straight", shape=ellipse, style="dashed", color="#5a4ea8", fontcolor="black", width=1.0, height=1.0];
+  wSt [label="1", shape=plaintext, fontcolor="#777777", fontsize=11];
+  leafSt [label="Straight", shape=box, style="rounded", color="#5a4ea8", fontcolor="black", width=0.7];
+  opChoose -> brSt [style=solid, color="#777777", arrowhead=normal];
+  brSt -> leafSt [style=solid, color="#777777", arrowhead=normal];
+  brSt -> wSt [style=invis];
+  { rank=same; brL; brR; brSt; }
+  { rank=same; leafL; leafR; leafSt; }
+}

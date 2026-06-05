@@ -1,0 +1,19 @@
+digraph fast_twice {
+  rankdir=LR;
+  bgcolor="white";
+  node [fontname="Helvetica"];
+  edge [fontname="Helvetica"];
+  start [shape=plaintext, label="start", fontcolor="#777777"];
+  ok [label="ok", shape=circle, style="filled", fillcolor="#d8efe1", color="#1f7a4d", fontcolor="#1f7a4d", fontname="Helvetica", peripheries=2, width=1.0, fixedsize=true];
+  was_fast [label="was_fast", shape=circle, style="filled", fillcolor="#e1e1f5", color="#4a3fb0", fontcolor="#4a3fb0", fontname="Helvetica", peripheries=2, width=1.0, fixedsize=true];
+  was_slow [label="was_slow", shape=circle, style="filled", fillcolor="#fbf3d6", color="#9a7b1f", fontcolor="#9a7b1f", fontname="Helvetica", peripheries=2, width=1.0, fixedsize=true];
+  violated [label="violated", shape=circle, style="filled", fillcolor="#f7e1dc", color="#b13c2a", fontcolor="#b13c2a", fontname="Helvetica", peripheries=1, width=1.0, fixedsize=true];
+  start -> ok [label="", color="#555555", fontcolor="#555555", fontname="Helvetica", fontsize=11];
+  ok -> ok [label="slow, mid", color="#555555", fontcolor="#555555", fontname="Helvetica", fontsize=11];
+  ok -> was_fast [label="fast", color="#555555", fontcolor="#555555", fontname="Helvetica", fontsize=11];
+  was_fast -> was_fast [label="mid, fast", color="#555555", fontcolor="#555555", fontname="Helvetica", fontsize=11];
+  was_fast -> was_slow [label="slow", color="#555555", fontcolor="#555555", fontname="Helvetica", fontsize=11];
+  was_slow -> was_slow [label="slow, mid", color="#555555", fontcolor="#555555", fontname="Helvetica", fontsize=11];
+  was_slow -> violated [label="fast", color="#555555", fontcolor="#555555", fontname="Helvetica", fontsize=11];
+  violated -> violated [label="any (absorbing)", color="#555555", fontcolor="#555555", fontname="Helvetica", fontsize=11];
+}

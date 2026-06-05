@@ -9,6 +9,8 @@ correct for absorbing-reject DFAs.
 
 from __future__ import annotations
 
+import math
+
 from verifai.monitor import automaton_specification
 
 
@@ -141,6 +143,154 @@ def spec_max_speed(threshold=MAX_SPEED_BASELINE):
         transition=transition,
         label=lambda s: s != "violated",
         labeling_function=lambda row: "high" if row["speed"] >= threshold else "low",
+    )
+
+
+# --- Maneuver-choose specs (intersection L/R/Straight). -------------------
+# These pair with composites/maneuver_choose.scenic, where the three choose
+# branches traverse structurally distinct lanes through Town07's 4-way
+# intersection. Labeling is on heading delta from each trace's step-0
+# heading — self-calibrating, no map-specific constants baked.
+
+DELTA_TURN_RAD = math.pi / 4   # ~45° — threshold to flag a step as "turning"
+DELTA_DONE_RAD = math.pi / 2   # ~90° — threshold to flag the turn as completed
+K_INTERSECTION = 10            # max ticks between turn-onset and turn-completion
+
+
+def _wrap(angle: float) -> float:
+    """Wrap radians to (-π, π]."""
+    a = (angle + math.pi) % (2 * math.pi) - math.pi
+    return a
+
+
+def _heading_label_factory(turn_threshold: float):
+    """Build a per-trace-stateful labeling function on heading delta.
+
+    Caches each trace's step-0 heading the first time we see that
+    trace_id, then emits 'turn' iff |heading − step0| ≥ turn_threshold,
+    else 'straight'. Self-calibrating across maps / startLane choices —
+    no INITIAL_HEADING constant needs baking. The cache grows monotonically
+    with trace_id over the lifetime of one spec instance (one entry per
+    trace, ~bytes); fine for our budgets, fresh per spec rebuild.
+    """
+    step0_heading: dict = {}
+
+    def label(row):
+        tid = row["trace_id"]
+        if row["step"] == 0 or tid not in step0_heading:
+            step0_heading[tid] = row["heading"]
+        delta = _wrap(row["heading"] - step0_heading[tid])
+        return "turn" if abs(delta) >= turn_threshold else "straight"
+
+    return label
+
+
+def spec_completes_turn():
+    """Markovian intersection spec: ego never enters the turning band.
+
+    Per-tick predicate on heading delta from start (Markovian: DFA state
+    is just ok/violated, no inter-tick counter). Safety-complement,
+    absorbing-reject. On the maneuver_choose composite, only the Straight
+    branch (and pre-turn ticks of L/R) keeps |Δh| < π/4 throughout; the
+    L and R branches eventually cross the threshold and reject.
+
+    Nominal ρ̂ ≈ 1/3 under uniform choose.
+    """
+    def transition(state, sym):
+        if state == "violated":
+            return "violated"
+        return "violated" if sym == "turn" else "ok"
+
+    return automaton_specification(
+        start="ok",
+        inputs={"straight", "turn"},
+        transition=transition,
+        label=lambda s: s != "violated",
+        labeling_function=_heading_label_factory(DELTA_TURN_RAD),
+    )
+
+
+def _heading_band_label_factory(turn_threshold: float, done_threshold: float):
+    """Three-band heading-only labeler.
+
+    Emits one of {pre_turn, in_turning, turn_done} per row, using each
+    trace's step-0 heading as a self-calibrating baseline. No speed
+    component — this is what gives the K-completion spec its mono-comp
+    agreement, because the discriminating signal lives entirely in the
+    turn-segment heading dynamics (which both methods see identically),
+    not in the segment-boundary speed transient (which only mono sees).
+    """
+    step0_heading: dict = {}
+
+    def label(row):
+        tid = row["trace_id"]
+        if row["step"] == 0 or tid not in step0_heading:
+            step0_heading[tid] = row["heading"]
+        delta = abs(_wrap(row["heading"] - step0_heading[tid]))
+        if delta >= done_threshold:
+            return "turn_done"
+        if delta >= turn_threshold:
+            return "in_turning"
+        return "pre_turn"
+
+    return label
+
+
+def spec_k_intersection(K: int = K_INTERSECTION):
+    """Non-Markovian K-window intersection spec: 'complete the turn in time'.
+
+    Once the ego enters the turning band (|Δh| ≥ π/4), it must reach turn
+    completion (|Δh| ≥ π/2) within K ticks — i.e. the ego must rotate
+    through π/4 of arc within K ticks of starting the turn. Faster turns
+    pass; slow / aborted turns violate.
+
+    The K-counter chain (in_turn_1 → … → in_turn_K) is the explicitly
+    non-Markovian element. Crucially, the spec only depends on heading
+    dynamics during the turn segment — no speed component, no cross-
+    primitive coupling. Comp's TurnL/TurnR primitives and mono's
+    MonoApproachChoose see the same turn-segment heading evolution
+    (FollowTrajectoryBehavior at the same UBER_SPEED distribution), so
+    per-primitive ρ̂_L/R should converge to mono's ρ̂_L/R.
+
+    Symbol alphabet: {pre_turn, in_turning, turn_done}.
+
+    Nominal ρ̂:
+      • Straight branch (⅓): stays in pre_turn → trivially satisfied
+      • L/R branches (⅔):    satisfied iff (turn arc traversed within K
+                              ticks). Discriminates on UBER_SPEED —
+                              faster ego = faster arc traversal.
+    K=10 (~1s at timestep=0.1) lands the cell in the discriminating band
+    for UBER_SPEED ∈ [2, 8] on Town07's connecting-lane geometry.
+    """
+    counting = [f"in_turn_{i + 1}" for i in range(K)]
+
+    def transition(state, sym):
+        if state == "violated":
+            return "violated"
+        if state == "completed":
+            return "completed"
+        if state == "ok":
+            if sym == "pre_turn":
+                return "ok"
+            if sym == "turn_done":
+                return "completed"
+            return counting[0]  # in_turning: start the K-window
+        idx = counting.index(state)
+        if sym == "turn_done":
+            return "completed"
+        if sym == "in_turning":
+            if idx == K - 1:
+                return "violated"  # K ticks elapsed without completion
+            return counting[idx + 1]
+        # pre_turn while inside the K-window → oscillated back → violated
+        return "violated"
+
+    return automaton_specification(
+        start="ok",
+        inputs={"pre_turn", "in_turning", "turn_done"},
+        transition=transition,
+        label=lambda s: s != "violated",
+        labeling_function=_heading_band_label_factory(DELTA_TURN_RAD, DELTA_DONE_RAD),
     )
 
 
