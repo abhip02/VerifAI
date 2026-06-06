@@ -22,17 +22,17 @@ from verifai.monitor import automaton_specification
 # below are recalibrated so per-cell ρ̂ lands in a discriminating band
 # without changing what each spec is *checking*.
 STOP_THRESHOLD_MS = 3.5
-REQUIRED_WAIT_STEPS = 1   # was 3 — K=1 means one slow tick then fast is OK,
-                           # two-or-more slow then fast is the gate; with v3
-                           # primitives this lands ρ̂_comp in (0, 1).
+REQUIRED_WAIT_STEPS = 1  # was 3 — K=1 means one slow tick then fast is OK,
+# two-or-more slow then fast is the gate; with v3
+# primitives this lands ρ̂_comp in (0, 1).
 NEAR_STOP_MS = 3.5
-HIGH_SPEED_MS = 6.0       # was 7.0 — lowered so the v3 X/O primitives
-                           # (Range(7-10)/(6.5-9)) consistently hit `fast`
-                           # while C (Range(2.5-7.5)) sometimes does too,
-                           # giving cross-segment fast→slow→fast patterns.
+HIGH_SPEED_MS = 6.0  # was 7.0 — lowered so the v3 X/O primitives
+# (Range(7-10)/(6.5-9)) consistently hit `fast`
+# while C (Range(2.5-7.5)) sometimes does too,
+# giving cross-segment fast→slow→fast patterns.
 LOW_SPEED_MS = 3.5
 SLOW_MS = 3.5
-FAST_MS = 7.5             # was 8.0 — same recalibration logic for slow2_accel
+FAST_MS = 7.5  # was 8.0 — same recalibration logic for slow2_accel
 MAX_SPEED_BASELINE = 8.5  # used by the Markovian baseline spec_max_speed
 
 
@@ -44,7 +44,7 @@ def spec_tollgate():
     dfa_tests/test_check_with_dfa_metadrive_tollgate.py.
     """
     K = REQUIRED_WAIT_STEPS
-    wait_states = [f"wait_{i+1}" for i in range(K)]
+    wait_states = [f"wait_{i + 1}" for i in range(K)]
 
     def transition(state, sym):
         if state == "moving":
@@ -61,7 +61,9 @@ def spec_tollgate():
         inputs={"slow", "fast"},
         transition=transition,
         label=lambda s: s != "violated",
-        labeling_function=lambda row: "slow" if row["speed"] < STOP_THRESHOLD_MS else "fast",
+        labeling_function=lambda row: (
+            "slow" if row["speed"] < STOP_THRESHOLD_MS else "fast"
+        ),
     )
 
 
@@ -70,6 +72,7 @@ def spec_two_stops():
 
     Lifted from dfa_tests/test_check_with_dfa_metadrive_two_stops.py.
     """
+
     def transition(state, sym):
         if state == "moving":
             return "stopped_once" if sym == "near_stop" else "moving"
@@ -82,7 +85,9 @@ def spec_two_stops():
         inputs={"moving", "near_stop"},
         transition=transition,
         label=lambda s: s != "stopped_twice",
-        labeling_function=lambda row: "near_stop" if row["speed"] < NEAR_STOP_MS else "moving",
+        labeling_function=lambda row: (
+            "near_stop" if row["speed"] < NEAR_STOP_MS else "moving"
+        ),
     )
 
 
@@ -103,6 +108,7 @@ def spec_fast_twice():
     compositional check_with_dfa handles correctly. Lifted from
     dfa_tests/test_check_with_dfa_cosafety_fast_twice.py::make_safety_spec.
     """
+
     def transition(state, sym):
         if state == "violated":
             return "violated"
@@ -132,6 +138,7 @@ def spec_max_speed(threshold=MAX_SPEED_BASELINE):
     pipeline bug rather than the genuine non-Markovian limitation seen on
     spec_tollgate / spec_fast_twice / spec_slow2_accel.
     """
+
     def transition(state, sym):
         if state == "violated":
             return "violated"
@@ -152,9 +159,9 @@ def spec_max_speed(threshold=MAX_SPEED_BASELINE):
 # intersection. Labeling is on heading delta from each trace's step-0
 # heading — self-calibrating, no map-specific constants baked.
 
-DELTA_TURN_RAD = math.pi / 4   # ~45° — threshold to flag a step as "turning"
-DELTA_DONE_RAD = math.pi / 2   # ~90° — threshold to flag the turn as completed
-K_INTERSECTION = 10            # max ticks between turn-onset and turn-completion
+DELTA_TURN_RAD = math.pi / 4  # ~45° — threshold to flag a step as "turning"
+DELTA_DONE_RAD = math.pi / 2  # ~90° — threshold to flag the turn as completed
+K_INTERSECTION = 10  # max ticks between turn-onset and turn-completion
 
 
 def _wrap(angle: float) -> float:
@@ -196,6 +203,7 @@ def spec_completes_turn():
 
     Nominal ρ̂ ≈ 1/3 under uniform choose.
     """
+
     def transition(state, sym):
         if state == "violated":
             return "violated"
@@ -310,6 +318,7 @@ def spec_slow2_accel():
     reject form. Lifted from
     dfa_tests/test_check_with_dfa_cosafety_slow2_accel.py::make_safety_spec.
     """
+
     def transition(state, sym):
         if state == "violated":
             return "violated"
@@ -334,3 +343,271 @@ def spec_slow2_accel():
         label=lambda s: s != "violated",
         labeling_function=_slow2_accel_sym,
     )
+
+
+# ===========================================================================
+# v3 trace-replay specs — used by budget_sweep/main_v3.py.
+#
+# All four are co-safety properties expressed as their absorbing-reject
+# safety complement: run the safety spec through check_with_dfa* to get
+# ρ_safety, then the reported co-safety value is ρ = 1 − ρ_safety. See
+# the handoff doc §"Key rule: check_with_dfa handles safety only".
+# ===========================================================================
+
+import ast as _ast
+
+import numpy as _np
+import pandas as _pd
+
+
+# --- App C parameterizations ----------------------------------------------
+# Per Appendix C §C.3: the DFAs are identical across backends; only the
+# signal thresholds, counter windows, and warmup widths differ so each
+# property fires at a comparable rate on Scenic-generated vs MetaDrive
+# traces. Defaults below match the appendix.
+
+WARMUP_STEPS = 25  # Scenic warmup (App C: 25)
+WARMUP_STEPS_MD = 10  # MetaDrive warmup (App C: 10)
+
+# Tollgate — resetting consecutive-slow counter, reject at k.
+TOLLGATE_SLOW_MD = 0.5
+TOLLGATE_K_MD = 2
+TOLLGATE_SLOW_SCENIC = 1.0
+TOLLGATE_K_SCENIC = 5
+
+# Two-stop — count near-stop events, reject on 2nd.
+NEAR_STOP_MD = 1.5
+NEAR_STOP_SCENIC = 1.0
+
+# V-shape — never fast→slow→fast (safety complement of co-safety).
+VSHAPE_HIGH_MD = 5.0
+VSHAPE_HIGH_SCENIC = 3.0
+VSHAPE_LOW = 1.5
+
+
+def _make_tollgate(slow_thresh: float, k: int, warmup: int):
+    """Resetting consecutive-slow-step counter (App C Tollgate)."""
+
+    def transition(state, sym):
+        if state == "violated":
+            return "violated"
+        if sym == "ok":
+            return "ok"
+        if state == "ok":
+            return "slow_1"
+        idx = int(state.split("_")[1])
+        return "violated" if idx >= k - 1 else f"slow_{idx + 1}"
+
+    def label_row(row):
+        if int(row["step"]) < warmup:
+            return "ok"
+        return "slow" if float(row["speed"]) < slow_thresh else "ok"
+
+    return automaton_specification(
+        start="ok",
+        inputs={"slow", "ok"},
+        transition=transition,
+        label=lambda s: s != "violated",
+        labeling_function=label_row,
+    )
+
+
+def make_tollgate_spec_md():
+    return _make_tollgate(TOLLGATE_SLOW_MD, TOLLGATE_K_MD, WARMUP_STEPS_MD)
+
+
+def make_tollgate_spec_scenic():
+    return _make_tollgate(TOLLGATE_SLOW_SCENIC, TOLLGATE_K_SCENIC, WARMUP_STEPS)
+
+
+# Back-compat alias — App C "Tollgate" = the function previously named no_linger.
+make_no_linger_spec = make_tollgate_spec_scenic
+
+
+def _make_two_stops(near_stop: float, warmup: int):
+    """Count near-stop events; reject on the 2nd (App C Two-stop)."""
+
+    def transition(state, sym):
+        if state == "moving":
+            return "stopped_once" if sym == "near_stop" else "moving"
+        if state == "stopped_once":
+            return "stopped_twice" if sym == "near_stop" else "stopped_once"
+        return "stopped_twice"
+
+    def label_row(row):
+        if int(row["step"]) < warmup:
+            return "moving"
+        return "near_stop" if float(row["speed"]) < near_stop else "moving"
+
+    return automaton_specification(
+        start="moving",
+        inputs={"moving", "near_stop"},
+        transition=transition,
+        label=lambda s: s != "stopped_twice",
+        labeling_function=label_row,
+    )
+
+
+def make_two_stops_spec_md():
+    return _make_two_stops(NEAR_STOP_MD, WARMUP_STEPS_MD)
+
+
+def make_two_stops_spec_scenic():
+    return _make_two_stops(NEAR_STOP_SCENIC, WARMUP_STEPS)
+
+
+make_two_stops_medium_spec = make_two_stops_spec_scenic
+
+
+def _make_vshape_safety(high: float, low: float, warmup: int):
+    """Safety complement of V-shape co-safety (App C V-shaped)."""
+
+    def transition(state, sym):
+        if state == "violated":
+            return "violated"
+        if state == "ok":
+            return "was_fast" if sym == "fast" else "ok"
+        if state == "was_fast":
+            return "was_slow" if sym == "slow" else "was_fast"
+        return "violated" if sym == "fast" else "was_slow"
+
+    def label_row(row):
+        if int(row["step"]) < warmup:
+            return "mid"
+        spd = float(row["speed"])
+        if spd >= high:
+            return "fast"
+        if spd <= low:
+            return "slow"
+        return "mid"
+
+    return automaton_specification(
+        start="ok",
+        inputs={"slow", "mid", "fast"},
+        transition=transition,
+        label=lambda s: s != "violated",
+        labeling_function=label_row,
+    )
+
+
+def make_vshape_safety_spec_md():
+    return _make_vshape_safety(VSHAPE_HIGH_MD, VSHAPE_LOW, WARMUP_STEPS_MD)
+
+
+def make_vshape_safety_spec_scenic():
+    return _make_vshape_safety(VSHAPE_HIGH_SCENIC, VSHAPE_LOW, WARMUP_STEPS)
+
+
+make_vshape_safety_spec = make_vshape_safety_spec_scenic
+
+
+# --- Spec 4a — Sustained Steering, MetaDrive ------------------------------
+STEER_THRESH = 0.20
+STEER_K = 3
+
+
+def make_steer_spec_metadrive():
+    """Co-safety: eventually sustain |steer| > τ for ≥ K consecutive steps."""
+
+    def transition(state, sym):
+        if state == "violated":
+            return "violated"
+        if sym == "gentle":
+            return "ok"
+        if state == "ok":
+            return "sharp_1"
+        idx = int(state.split("_")[1])
+        return "violated" if idx >= STEER_K else f"sharp_{idx + 1}"
+
+    def label_row(row):
+        try:
+            vals = _ast.literal_eval(str(row["action"]))
+            steer = abs(float(vals[0]))
+        except Exception:
+            steer = 0.0
+        return "sharp" if steer > STEER_THRESH else "gentle"
+
+    return automaton_specification(
+        start="ok",
+        inputs={"sharp", "gentle"},
+        transition=transition,
+        label=lambda s: s != "violated",
+        labeling_function=label_row,
+    )
+
+
+# --- Spec 4b — Sustained Steering, Scenic (on dh column) ------------------
+DH_THRESH = 0.035
+DH_K = 20
+
+
+def make_steer_spec_scenic():
+    """Co-safety: eventually sustain dh > τ for ≥ K consecutive steps.
+
+    Requires the `dh` column to be present on each Scenic CSV; see
+    :func:`add_dh_column`.
+    """
+
+    def transition(state, sym):
+        if state == "violated":
+            return "violated"
+        if sym == "gentle":
+            return "ok"
+        if state == "ok":
+            return "sharp_1"
+        idx = int(state.split("_")[1])
+        return "violated" if idx >= DH_K else f"sharp_{idx + 1}"
+
+    def label_row(row):
+        try:
+            dh = float(row["dh"])
+        except Exception:
+            dh = 0.0
+        return "sharp" if dh > DH_THRESH else "gentle"
+
+    return automaton_specification(
+        start="ok",
+        inputs={"sharp", "gentle"},
+        transition=transition,
+        label=lambda s: s != "violated",
+        labeling_function=label_row,
+    )
+
+
+# --- Pre-processing: add `dh` column to Scenic CSVs (idempotent) ----------
+SCENIC_CSVS_FOR_DH = (
+    "Subscenario1",
+    "Subscenario2L",
+    "Subscenario2R",
+    "Subscenario2S",
+    "MonolithicMain",
+    "MonolithicShuffle",
+)
+
+
+def add_dh_column(scenic_base) -> None:
+    """Compute per-step |Δheading| (unwrapped) into a `dh` column. In-place."""
+    from pathlib import Path as _Path
+
+    base = _Path(scenic_base)
+    for name in SCENIC_CSVS_FOR_DH:
+        path = base / name / "traces.csv"
+        if not path.exists():
+            print(f"[dh] skip missing: {path}")
+            continue
+        df = _pd.read_csv(path, low_memory=False).sort_values(["trace_id", "step"])
+
+        def _compute(grp):
+            dh = grp["heading"].diff().abs()
+            dh = dh.apply(
+                lambda x: (
+                    min(x, 2 * _np.pi - x)
+                    if (_pd.notna(x) and x <= 2 * _np.pi)
+                    else 0.0
+                )
+            )
+            return dh.fillna(0.0)
+
+        df["dh"] = df.groupby("trace_id", group_keys=False).apply(_compute)
+        df.to_csv(path, index=False)
+        print(f"[dh] added: {name}")
