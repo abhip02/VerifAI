@@ -17,17 +17,7 @@ CompositionStep = Union[str, Dict[str, float]]
 
 
 def relabel_traces(csv_path, spec: automaton_specification) -> float:
-    """Relabel a per-primitive trace CSV with the given DFA spec's verdicts.
-
-    Reads `csv_path`, groups by `trace_id`, runs `spec.evaluate(...)` on each
-    trace (which advances the DFA's labeling function over the trace's rows
-    and returns +1.0 if the final state is accepting, -1.0 otherwise),
-    overwrites the `label` column with the boolean verdict, and writes the
-    CSV back in place.
-
-    Returns the empirical per-trace acceptance probability (rho) — i.e. the
-    mean of the per-trace boolean verdicts.
-    """
+    """Relabel a per-primitive trace CSV with the given DFA spec's verdicts."""
     df = pd.read_csv(csv_path).sort_values("step")
     labels = {tid: spec.evaluate(grp.to_dict("records")) > 0
               for tid, grp in df.groupby("trace_id")}
@@ -45,7 +35,6 @@ class ScenarioStats:
 class ScenarioBase:
     """
     Handles loading and basic statistics of scenario trace data.
-    Computes empirical success probabilities and uncertainty.
     """
 
     REQUIRED_COLUMNS = {"trace_id", "step", "label"}
@@ -86,8 +75,8 @@ class ScenarioBase:
 
 class CompositionalAnalysisEngine:
     """
-    Computes importance-sampled success probabilities across sequential
-    scenarios using Gaussian KDE and uncertainty propagation.
+    Compositional verification with Gaussian KDE importance sampling and
+    DFA-based non-Markovian specifications, with per-sub-DFA decomposition.
     """
 
     def __init__(self, scenario_base: ScenarioBase):
@@ -176,18 +165,14 @@ class CompositionalAnalysisEngine:
         bw_method: Union[str, float] = 10,
     ) -> Tuple[float, float]:
         """
-        Compositional verification with DFA spec, supporting both sequential
-        and random composition.
+        Compositional verification with DFA spec, decomposing the estimator
+        over starting sub-DFAs q:
 
-        Each element of `scenario` is either:
-            str              -> single scenario (sequential step)
-            dict[str, float] -> weighted random choice, e.g. {"X": 0.6, "O": 0.4}
+            rho_i  =  sum_q  q_init_dist^(i)[q]  *  sum_branch  branch_weight *
+                      [ sum_tau w_{i,q,branch}(tau) * 1[delta_hat(q, L(tau)) in F] ]
 
-        Sequential:  rho *= rho_step_i
-        Random:      rho *= sum(w_j * rho_step_j)
-
-        DFA state distribution is tracked through each step, conditioned on
-        acceptance, so rejection probability is never double-counted.
+        where the source KDE for each (q, branch) is built from previous-step
+        traces whose DFA state at termination was q.
         """
         if len(scenario) == 0:
             raise ValueError("Scenario list must contain at least one step.")
@@ -207,16 +192,16 @@ class CompositionalAnalysisEngine:
 
         # Forward pass: compute q_init_dist at the start of each step,
         # conditioned on acceptance through all prior steps.
-        q_init_dists = []
+        q_init_dists: List[Dict[object, float]] = []
         q_dist: Dict[object, float] = {spec._dfa.start: 1.0}
         for step in steps:
             q_init_dists.append(q_dist)
             q_dist = self._advance_q_dist_through_step(step, spec, q_dist)
 
-        # First step
+        # First step (no IS)
         first_rho, first_eps_ratio = self._evaluate_step(
             steps[0], spec, q_init_dists[0], per_step_delta,
-            prev_step=None,
+            prev_step=None, prev_q_init_dist=None,
             features=features, center_feat_idx=center_feat_idx,
             bw_method=bw_method,
         )
@@ -244,6 +229,7 @@ class CompositionalAnalysisEngine:
             step_rho, step_eps_ratio = self._evaluate_step(
                 steps[i], spec, q_init_dists[i], per_step_delta,
                 prev_step=steps[i - 1],
+                prev_q_init_dist=q_init_dists[i - 1],
                 features=features, center_feat_idx=center_feat_idx,
                 bw_method=bw_method,
             )
@@ -294,20 +280,8 @@ class CompositionalAnalysisEngine:
         center_feat_idx: Optional[List[int]] = None,
         bw_method: Union[str, float] = 10,
     ) -> Tuple[float, float]:
-        """
-        Compositional verification for a Scenic spec.
-
-        Accepts either:
-          - List[(prob, composition)] — the legacy wrapped format
-          - List[CompositionStep]      — the flat composition output from
-            `scenic_to_check_input` (treated as a single path with prob=1.0)
-
-        Calls check_with_dfa on each path and returns the weighted sum:
-            rho = sum(p_i * rho_i)
-            eps = sqrt(sum((p_i * eps_i)^2))   [conservative, assumes independence]
-        """
-        # Auto-wrap a flat composition into [(1.0, composition)] so callers
-        # don't need to wrap manually.
+        """Compositional verification for a Scenic spec."""
+        # Auto-wrap a flat composition into [(1.0, composition)]
         if paths and not (isinstance(paths[0], tuple) and len(paths[0]) == 2
                           and isinstance(paths[0][0], (int, float))):
             paths = [(1.0, list(paths))]
@@ -330,140 +304,190 @@ class CompositionalAnalysisEngine:
         q_init_dist: Dict[object, float],
         per_step_delta: float,
         prev_step: Optional[Dict[str, float]],
+        prev_q_init_dist: Optional[Dict[object, float]],
         features: Optional[List[str]],
         center_feat_idx: Optional[List[int]],
         bw_method: Union[str, float],
     ) -> Tuple[float, float]:
         """
-        Evaluate one composition step (sequential or random).
+        Per-sub-DFA evaluation:
 
-        For a sequential step {"S": 1.0}, this behaves exactly as the
-        original check_with_dfa loop body.
+            rho_step = sum_q  q_init_dist[q]
+                       * sum_branch  branch_weight
+                       * [ per-(q, branch) IS-weighted acceptance probability ]
 
-        For a random step {"X": 0.6, "O": 0.4}, it computes the
-        importance-weighted rho for each branch and returns the weighted
-        average.
-
-        Returns (rho_step, eps_ratio).
+        The source KDE for each q is built from previous-step accepting
+        traces whose DFA state at termination was q (so it is conditioned
+        on the starting sub-DFA being q, not marginalized over the prior).
         """
+        # First step: no importance sampling
         if prev_step is None:
-            # First step: no importance sampling, just DFA labels
             rho_step = 0.0
             weighted_eps_sq = 0.0
 
-            for branch_name, branch_weight in step.items():
-                df = self.scenario_base.data[branch_name]
-                labels, _ = self._dfa_labels(df, spec, q_init_dist)
-                branch_rho = float(np.mean(labels)) if len(labels) > 0 else 0.0
-                N = len(labels)
-                branch_eps = np.sqrt(np.log(2 / per_step_delta) / (2 * N)) if N > 0 else 0.0
+            for q_init, w_q in q_init_dist.items():
+                if w_q == 0:
+                    continue
+                for branch_name, branch_weight in step.items():
+                    df = self.scenario_base.data[branch_name]
+                    labels = self._dfa_labels_at_q(df, spec, q_init)
+                    N = len(labels)
+                    if N == 0:
+                        continue
+                    branch_rho_q = float(np.mean(labels))
+                    branch_eps_q = np.sqrt(np.log(2 / per_step_delta) / (2 * N))
 
-                rho_step += branch_weight * branch_rho
-                weighted_eps_sq += (branch_weight * branch_eps) ** 2
+                    rho_step += w_q * branch_weight * branch_rho_q
+                    weighted_eps_sq += (w_q * branch_weight * branch_eps_q) ** 2
 
             if rho_step == 0.0:
                 return 0.0, 0.0
-
             return rho_step, np.sqrt(weighted_eps_sq) / rho_step
 
-        # Compositional step with importance sampling
+        # Compositional step: per-q IS
         if not features:
             raise ValueError("Feature list must be provided for KDE.")
 
-        # Get accepting features and per-sample weights from the previous step
-        s_last_features, s_last_weights = self._get_prev_step_accepting_features(
-            prev_step, spec, q_init_dist, features, center_feat_idx,
+        feats_by_q = self._get_prev_step_accepting_features_by_q(
+            prev_step, spec, prev_q_init_dist, features, center_feat_idx,
         )
 
         rho_step = 0.0
         weighted_eps_sq = 0.0
 
-        for branch_name, branch_weight in step.items():
-            df_t = self.scenario_base.data[branch_name]
-            t_first = df_t.sort_values("step").groupby("trace_id").head(1)
-            labels_t, _ = self._dfa_labels(df_t, spec, q_init_dist)
-
-            t_first_features = t_first[features].to_numpy()
-            if center_feat_idx:
-                for j in center_feat_idx:
-                    t_first_features[:, j] -= np.mean(t_first_features[:, j])
-
-            if s_last_features.shape[0] < 2 or t_first_features.shape[0] < 2:
+        for q_init, w_q in q_init_dist.items():
+            if w_q == 0 or q_init not in feats_by_q:
+                continue
+            s_last_features, s_last_weights = feats_by_q[q_init]
+            if s_last_features.shape[0] < 2:
                 continue
 
-            kde_s = gaussian_kde(s_last_features.T, bw_method=bw_method,
-                                 weights=s_last_weights)
-            kde_t = gaussian_kde(t_first_features.T, bw_method=bw_method)
+            for branch_name, branch_weight in step.items():
+                df_t = self.scenario_base.data[branch_name]
+                t_first = df_t.sort_values("step").groupby("trace_id").head(1)
+                labels_t = self._dfa_labels_at_q(df_t, spec, q_init)
 
-            p_vals = kde_s(t_first_features.T)
-            q_vals = kde_t(t_first_features.T)
-            weights = np.nan_to_num(p_vals / q_vals, nan=0.0, posinf=0.0, neginf=0.0)
+                t_first_features = t_first[features].to_numpy()
+                if center_feat_idx:
+                    for j in center_feat_idx:
+                        t_first_features[:, j] -= np.mean(t_first_features[:, j])
 
-            branch_rho = np.sum(weights * labels_t) / np.sum(weights)
-            N_eff = np.sum(weights) ** 2 / np.sum(weights ** 2)
-            branch_eps = np.sqrt(np.log(2 / per_step_delta) / (2 * N_eff))
+                n_t = t_first_features.shape[0]
+                n_s = s_last_features.shape[0]
+                n_dims = t_first_features.shape[1] if t_first_features.ndim > 1 else 1
+                if n_t < 2 or n_s <= n_dims:
+                    continue
 
-            rho_step += branch_weight * branch_rho
-            weighted_eps_sq += (branch_weight * branch_eps) ** 2
+                try:
+                    kde_s = gaussian_kde(s_last_features.T, bw_method=bw_method,
+                                         weights=s_last_weights)
+                    kde_t = gaussian_kde(t_first_features.T, bw_method=bw_method)
+                    p_vals = kde_s(t_first_features.T)
+                    q_vals = kde_t(t_first_features.T)
+                    weights = np.nan_to_num(p_vals / q_vals,
+                                            nan=0.0, posinf=0.0, neginf=0.0)
+                except np.linalg.LinAlgError:
+                    weights = np.ones(n_t, dtype=float)
+
+                total_w = float(np.sum(weights))
+                if total_w == 0:
+                    continue
+
+                branch_rho_q = np.sum(weights * labels_t) / total_w
+                total_w2 = float(np.sum(weights ** 2))
+                N_eff = total_w ** 2 / total_w2 if total_w2 > 0 else 1.0
+                branch_eps_q = np.sqrt(np.log(2 / per_step_delta) / (2 * N_eff))
+
+                rho_step += w_q * branch_weight * branch_rho_q
+                weighted_eps_sq += (w_q * branch_weight * branch_eps_q) ** 2
 
         if rho_step == 0.0:
             return 0.0, 0.0
-
         return rho_step, np.sqrt(weighted_eps_sq) / rho_step
 
-    def _get_prev_step_accepting_features(
+    def _get_prev_step_accepting_features_by_q(
         self,
         prev_step: Dict[str, float],
         spec: automaton_specification,
-        q_init_dist: Dict[object, float],
+        prev_q_init_dist: Dict[object, float],
         features: List[str],
         center_feat_idx: Optional[List[int]],
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Dict[object, Tuple[np.ndarray, np.ndarray]]:
         """
-        Collect last-step features from accepting traces across all branches
-        of the previous step, with per-sample weights reflecting branch
-        probabilities.
+        Partition the previous step's accepting traces by the DFA state
+        q_final they ended in. For each q_final, return
+            (features_array, weights_array)
+        where weights = branch_weight * prev_q_init_dist[q_init], normalized
+        within each q_final bucket.
 
-        If prev_step is {"S1": 0.6, "S2": 0.4} and S1 has n1 accepting
-        traces while S2 has n2, each S1 sample gets weight 0.6/n1 and each
-        S2 sample gets weight 0.4/n2 (then normalized to sum to 1).
-
-        Returns (features_array, weights_array).
+        These per-q buckets feed the per-q source KDEs in _evaluate_step.
         """
-        feat_parts = []
-        weight_parts = []
+        by_q: Dict[object, Dict[str, list]] = {}
 
         for branch_name, branch_weight in prev_step.items():
             df = self.scenario_base.data[branch_name]
-            labels, _ = self._dfa_labels(df, spec, q_init_dist)
-
-            s_last_all = df.sort_values("step").groupby("trace_id").tail(1).copy()
+            grouped = {
+                str(tid): group.sort_values("step").to_dict("records")
+                for tid, group in df.groupby("trace_id")
+            }
+            s_last_all = (df.sort_values("step")
+                            .groupby("trace_id").tail(1)
+                            .copy())
             s_last_all["trace_id"] = s_last_all["trace_id"].astype(str)
-            s_tids = (df.sort_values("step")
-                      .groupby("trace_id").tail(1)["trace_id"].astype(str).tolist())
-            accepting_tids = {tid for tid, acc in zip(s_tids, labels) if acc > 0.0}
-            s_last = s_last_all[s_last_all["trace_id"].isin(accepting_tids)]
+            s_last_indexed = s_last_all.set_index("trace_id")
 
-            n_acc = len(s_last)
-            if n_acc > 0:
-                feat_parts.append(s_last[features].to_numpy())
-                # Each sample from this branch gets weight branch_weight / n_acc
-                weight_parts.append(np.full(n_acc, branch_weight / n_acc))
+            for q_init, w_q in prev_q_init_dist.items():
+                if w_q == 0:
+                    continue
+                for tid, traj in grouped.items():
+                    q_final = spec.advance_on_trace(traj, start=q_init)
+                    if not spec._dfa._label(q_final):
+                        continue  # only accepting traces contribute
+                    if tid not in s_last_indexed.index:
+                        continue
+                    feat_row = s_last_indexed.loc[tid, features].to_numpy()
 
-        if not feat_parts:
-            return np.empty((0, len(features))), np.empty(0)
+                    if q_final not in by_q:
+                        by_q[q_final] = {"feats": [], "weights": []}
+                    by_q[q_final]["feats"].append(feat_row)
+                    by_q[q_final]["weights"].append(branch_weight * w_q)
 
-        feat_array = np.concatenate(feat_parts, axis=0)
-        raw_weights = np.concatenate(weight_parts)
+        result: Dict[object, Tuple[np.ndarray, np.ndarray]] = {}
+        for q, d in by_q.items():
+            feats = np.array(d["feats"], dtype=float)
+            weights = np.array(d["weights"], dtype=float)
+            if center_feat_idx and len(feats) > 0:
+                for j in center_feat_idx:
+                    feats[:, j] -= np.average(feats[:, j], weights=weights)
+            weights = weights / weights.sum()
+            result[q] = (feats, weights)
 
-        # Normalize so weights sum to 1
-        raw_weights /= raw_weights.sum()
+        return result
 
-        if center_feat_idx:
-            for j in center_feat_idx:
-                feat_array[:, j] -= np.average(feat_array[:, j], weights=raw_weights)
+    @staticmethod
+    def _dfa_labels_at_q(
+        df: pd.DataFrame,
+        spec: automaton_specification,
+        q_init: object,
+    ) -> np.ndarray:
+        """For each trace in df, return 1.0 if advancing the DFA from q_init
+        on the trace's labels lands in an accepting state, else 0.0.
 
-        return feat_array, raw_weights
+        No marginalization over a starting-q distribution -- this is the
+        per-sub-DFA acceptance probability that gets weighted by
+        q_init_dist[q] in the outer loop of _evaluate_step.
+        """
+        grouped = {
+            str(tid): group.sort_values("step").to_dict("records")
+            for tid, group in df.groupby("trace_id")
+        }
+        trace_ids = list(grouped.keys())
+        labels = np.zeros(len(trace_ids))
+        for idx, tid in enumerate(trace_ids):
+            traj = grouped[tid]
+            q_final = spec.advance_on_trace(traj, start=q_init)
+            labels[idx] = 1.0 if spec._dfa._label(q_final) else 0.0
+        return labels
 
     def _advance_q_dist_through_step(
         self,
@@ -498,20 +522,10 @@ class CompositionalAnalysisEngine:
     ) -> Tuple[np.ndarray, Dict[object, float]]:
         """
         For each trace in df, compute acceptance probability by marginalising
-        over q_init_dist:
+        over q_init_dist. Returns labels and q_final_dist conditioned on
+        acceptance.
 
-            label(τ) = Σ_q  q_init_dist[q] * is_accepting(advance_on_trace(τ, q))
-
-        Also returns the updated q_init_dist for the next scenario:
-        the distribution of q_final values from **accepting evaluations
-        only** (conditioned on acceptance).  This ensures that the
-        multiplicative rho product in check_with_dfa does not double-count
-        rejection probability.
-
-        Returns
-        -------
-        labels       : float array, one value per trace
-        q_final_dist : {q -> weight} conditioned on acceptance
+        Used by _advance_q_dist_through_step and falsify_with_dfa.
         """
         grouped = {
             str(tid): group.sort_values("step").to_dict("records")
@@ -706,25 +720,16 @@ class CompositionalAnalysisEngine:
         bw_method: Union[str, int] = 10,
     ) -> Optional[pd.DataFrame]:
         """
-        Identical structure to falsify(), with two substitutions:
-
-        1. s_last filter  (was: label == True)
-           → keep traces whose DFA final state is accepting, under q_init_dist
-
-        2. failing t filter  (was: label == False)
-           → keep traces whose DFA final state is NOT accepting, under q_init_dist
-
-        Because falsify() iterates in reverse, we first do a forward pass to
-        compute q_init_dist at the start of each scenario, then use those
-        distributions in the reverse loop.
+        Identical structure to falsify(), but selects accepting/rejecting
+        traces via DFA evaluation under the appropriate q_init_dist instead
+        of via the static label column.
         """
         if len(scenario) == 0:
             raise ValueError("Scenario list must contain at least one scenario.")
 
         n = len(scenario)
 
-        # --- Forward pass: compute q_init_dist at the start of each scenario ---
-        # q_init_dists[i] is the distribution to use when evaluating scenario i
+        # Forward pass: compute q_init_dist at the start of each scenario
         q_init_dists = []
         q_init_dist: Dict[object, float] = {spec._dfa.start: 1.0}
         for s_name in scenario:
@@ -732,7 +737,7 @@ class CompositionalAnalysisEngine:
             df_s = self.scenario_base.data[s_name]
             _, q_init_dist = self._dfa_labels(df_s, spec, q_init_dist)
 
-        # --- Single scenario case ---
+        # Single scenario case
         if n == 1:
             t_name = scenario[0]
             df_t = self.scenario_base.data[t_name]
@@ -740,7 +745,6 @@ class CompositionalAnalysisEngine:
             t_last = t_traces.tail(1).sort_values("trace_id")
             t_first = t_traces.head(1).sort_values("trace_id")
 
-            # find failing traces via DFA  (replaces label == False)
             t_labels, _ = self._dfa_labels(df_t, spec, q_init_dists[0])
             t_tids = t_last["trace_id"].astype(str).tolist()
             failing_tids = {tid for tid, lab in zip(t_tids, t_labels) if lab == 0.0}
@@ -761,7 +765,7 @@ class CompositionalAnalysisEngine:
             t_idx = np.argmax(kde_t_last(t_last_features.T))
             return t_traces.get_group(t_first.iloc[t_idx]["trace_id"])
 
-        # --- Compositional case: reverse loop ---
+        # Compositional case: reverse loop
         cex = None
 
         for i in reversed(range(n - 1)):
@@ -772,8 +776,6 @@ class CompositionalAnalysisEngine:
             s_last_all = s_traces.tail(1).sort_values("trace_id").copy()
             s_last_all["trace_id"] = s_last_all["trace_id"].astype(str)
 
-            # s_last: accepting traces under q_init_dist for scenario i
-            # (replaces label == True)
             s_labels, _ = self._dfa_labels(df_s, spec, q_init_dists[i])
             s_tids = s_last_all["trace_id"].tolist()
             accepting_tids = {tid for tid, acc in zip(s_tids, s_labels) if acc > 0.0}
@@ -786,8 +788,6 @@ class CompositionalAnalysisEngine:
                 t_last["trace_id"]  = t_last["trace_id"].astype(str)
                 t_first["trace_id"] = t_first["trace_id"].astype(str)
 
-                # failing t traces under q_init_dist for scenario i+1
-                # (replaces label == False)
                 t_labels, _ = self._dfa_labels(df_t, spec, q_init_dists[i + 1])
                 t_tids = t_last["trace_id"].tolist()
                 failing_tids = {tid for tid, lab in zip(t_tids, t_labels) if lab == 0.0}
@@ -797,7 +797,6 @@ class CompositionalAnalysisEngine:
                 if t_first.empty or t_last.empty:
                     continue
 
-            # KDE and counterexample selection — identical to falsify()
             if features:
                 s_last_features = s_last[features].to_numpy()
                 if s_last_features.shape[0] < 2:

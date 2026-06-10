@@ -317,14 +317,72 @@ def _derive_heading_and_speed(
     return heading, speed
 
 
-def _trajectory_rows(simulation, trace_id: int) -> List[Dict[str, object]]:
+def _apply_dynamic_ego_patch() -> None:
+    """Patch the Scenic MetaDrive simulator so that egos created mid-simulation
+    (in sub-scenario setup blocks) receive actions and move.
+
+    By default MetaDrive's executeActions/step both use self.scene.objects
+    (frozen at scene creation), so dynamically-spawned sub-scenario egos are
+    never driven.  This patch switches them to self.objects (the running list
+    that grows as new egos are created).  Safe for single-ego scenarios since
+    self.objects == self.scene.objects when no new objects are added.
+
+    Called inside subprocess workers when dynamic_ego=True is requested.
+    """
+    try:
+        import scenic.simulators.metadrive.simulator as _md
+        import scenic.core.simulators as _sc
+        import math as _math
+        import time as _time
+
+        def _dyn_execute_actions(self, allActions):
+            _sc.Simulation.executeActions(self, allActions)
+            for obj in self.objects[1:]:
+                if obj.isVehicle:
+                    action = obj._collect_action()
+                    obj.metaDriveActor.before_step(action)
+                    obj._reset_control()
+                else:
+                    from scenic.simulators.metadrive import utils as _u
+                    if obj._walking_direction is None:
+                        obj._walking_direction = _u.scenicToMetaDriveHeading(obj.heading)
+                    if obj._walking_speed is None:
+                        obj._walking_speed = obj.speed
+                    direction = [_math.cos(obj._walking_direction), _math.sin(obj._walking_direction)]
+                    obj.metaDriveActor.set_velocity(direction, obj._walking_speed)
+
+        def _dyn_step(self):
+            start = _time.monotonic()
+            ego_obj = self.objects[0]
+            action = ego_obj._collect_action()
+            self.client.step(action)
+            ego_obj._reset_control()
+            if self.render and not self.render3D:
+                self.client.render(mode="topdown", semantic_map=True,
+                                   film_size=self.film_size, scaling=5,
+                                   screen_record=self.screen_record)
+            if self.real_time:
+                elapsed = _time.monotonic() - start
+                if elapsed < self.timestep:
+                    _time.sleep(self.timestep - elapsed)
+
+        _md.MetaDriveSimulation.executeActions = _dyn_execute_actions
+        _md.MetaDriveSimulation.step = _dyn_step
+    except Exception as exc:
+        import warnings
+        warnings.warn(f"_apply_dynamic_ego_patch failed: {exc}")
+
+
+def _trajectory_rows(simulation, trace_id: int, track_last: bool = False) -> List[Dict[str, object]]:
     trajectory = simulation.result.trajectory
     dt = float(getattr(simulation, "timestep", 1.0) or 1.0)
     termination_type = getattr(simulation.result, "terminationType", None)
     terminated_complete = getattr(termination_type, "name", "") == "scenarioComplete"
 
-    positions = [(frame[0].x, frame[0].y) for frame in trajectory]
-    z_values = [float(getattr(frame[0], "z", 0.0) or 0.0) for frame in trajectory]
+    idx = -1 if track_last else 0
+    positions = [(frame[idx].x, frame[idx].y) for frame in trajectory]
+    z_values = [float(getattr(frame[idx], "z", 0.0) or 0.0) for frame in trajectory]
+    n_objects_per_step = [len(frame) for frame in trajectory]
     actions_per_step = getattr(simulation.result, "actions", ()) or ()
     rewards_per_step = getattr(simulation.result, "rewards", None)
 
@@ -369,6 +427,7 @@ def _trajectory_rows(simulation, trace_id: int) -> List[Dict[str, object]]:
                 "action": action_val,
                 "reward": reward_val,
                 "label": label,
+                "n_objects": n_objects_per_step[step] if step < len(n_objects_per_step) else 1,
             }
         )
 
@@ -858,6 +917,11 @@ def _worker_generate_scenario(job: Mapping[str, object]) -> Tuple[str, str]:
     model = job.get("model") or DEFAULT_SCENIC_MODEL
     max_iterations = int(job.get("max_iterations", 2000))
     position = int(job.get("position", 0))
+    track_last = bool(job.get("track_last_object", False))
+    dynamic_ego = bool(job.get("dynamic_ego", False))
+
+    if dynamic_ego:
+        _apply_dynamic_ego_patch()
 
     save_dir = save_dir / scenario_name
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -898,7 +962,9 @@ def _worker_generate_scenario(job: Mapping[str, object]) -> Tuple[str, str]:
                 "action",
                 "reward",
                 "label",
+                "n_objects",
             ],
+            extrasaction="ignore",
         )
         writer.writeheader()
         trace_id = 0
@@ -917,7 +983,7 @@ def _worker_generate_scenario(job: Mapping[str, object]) -> Tuple[str, str]:
                 continue
             if simulation is None:
                 continue
-            for row in _trajectory_rows(simulation, trace_id):
+            for row in _trajectory_rows(simulation, trace_id, track_last=track_last):
                 writer.writerow(row)
             f.flush()
             if hasattr(simulation, "destroy"):
@@ -945,6 +1011,8 @@ def generate_graph_scenarios(
     backend: Optional[str] = None,
     mode2d: Optional[bool] = None,
     max_iterations: int = 2000,
+    track_last_object: bool = False,
+    dynamic_ego: bool = False,
 ) -> Dict[str, str]:
     """Per-primitive trace generation for SELF-CONTAINED scenario primitives.
 
@@ -1011,6 +1079,8 @@ def generate_graph_scenarios(
             "model": scenic_model,
             "max_iterations": max_iterations,
             "position": idx,
+            "track_last_object": track_last_object,
+            "dynamic_ego": dynamic_ego,
         }
         for idx, name in enumerate(primitives)
     ]

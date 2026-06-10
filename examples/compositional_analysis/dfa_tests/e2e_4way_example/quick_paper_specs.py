@@ -306,10 +306,43 @@ def make_vshape_safety_decay_spec(high=3.0, low=1.5, k_decay=40):
     )
 
 
+STEER_THRESH = 0.035   # rad/step
+STEER_K      = 20     # consecutive sharp steps before violation
+
+
+def make_steer_spec(thresh=STEER_THRESH, k=STEER_K):
+    """Never sustain |dh| > thresh for k consecutive steps (safety DFA)."""
+    def transition(state, sym):
+        if state == "violated":
+            return "violated"
+        if sym == "gentle":
+            return "ok"
+        if state == "ok":
+            return "sharp_1"
+        idx = int(state.split("_")[1])
+        if idx >= k:
+            return "violated"
+        return f"sharp_{idx + 1}"
+
+    def label_row(row):
+        if row["step"] < WARMUP_STEPS:
+            return "gentle"
+        return "sharp" if abs(float(row["dh"])) > thresh else "gentle"
+
+    return automaton_specification(
+        start="ok",
+        inputs={"sharp", "gentle"},
+        transition=transition,
+        label=lambda s: s != "violated",
+        labeling_function=label_row,
+    )
+
+
 SPECS = [
-    ("no_linger",        make_no_linger_spec),
-    ("two_stops_medium", make_two_stops_medium_spec),
+    ("no_linger",         make_no_linger_spec),
+    ("two_stops_medium",  make_two_stops_medium_spec),
     ("vshape_safety_3p0", lambda: make_vshape_safety_spec(high=3.0, low=1.5)),
+    ("steer_k20",         make_steer_spec),
 ]
 
 
@@ -401,6 +434,55 @@ def diagnose_boundary(logs, spec, sub1_name, sub2_names):
         print(f"    {name:22s}  {rho_fresh:8.4f}  {rho_cond:10.4f}  {delta:+7.4f}")
 
 
+def compute_stitched_shuffle_rho(logs, spec, sub1="Subscenario1",
+                                  sub2s=None, n_samples=1000, seed=42):
+    """Offline stitched shuffle ground truth.
+
+    Samples n_samples traces by:
+      1. Drawing a random Sub1 trace.
+      2. Drawing a random permutation of sub2s and one trace from each.
+      3. Chaining advance_on_trace across all segments (propagating DFA state).
+      4. Returning rho = fraction of stitched traces where the DFA accepts.
+
+    This is the correct independence-assumption ground truth for the shuffle
+    operator — each segment is an independent draw from its primitive distribution.
+    """
+    if sub2s is None:
+        sub2s = ["Subscenario2L", "Subscenario2R", "Subscenario2S"]
+
+    rng = np.random.default_rng(seed)
+
+    # Pre-load traces as lists of row dicts, grouped by trace_id
+    def load_trajs(csv_path):
+        df = pd.read_csv(csv_path, low_memory=False).sort_values("step")
+        return [
+            grp.to_dict("records")
+            for _, grp in df.groupby("trace_id")
+        ]
+
+    sub1_trajs  = load_trajs(logs[sub1])
+    sub2_trajs  = {s: load_trajs(logs[s]) for s in sub2s}
+
+    q0      = spec._dfa.start
+    labels  = []
+    for _ in range(n_samples):
+        # Sample one trace per segment independently
+        traj1 = sub1_trajs[rng.integers(len(sub1_trajs))]
+        perm  = rng.permutation(sub2s).tolist()
+        trajs = [sub2_trajs[s][rng.integers(len(sub2_trajs[s]))] for s in perm]
+
+        # Chain DFA state across all segments
+        q = spec.advance_on_trace(traj1, start=q0)
+        for traj in trajs:
+            q = spec.advance_on_trace(traj, start=q)
+
+        labels.append(1.0 if spec._dfa._label(q) else 0.0)
+
+    rho = float(np.mean(labels))
+    eps = hoeffding_eps(n_samples)
+    return rho, eps
+
+
 def main():
     # Collect available primitive traces
     logs = {}
@@ -467,19 +549,25 @@ def main():
             try:
                 rho_comp_s, eps_comp_s = engine.check_with_dfa_scenic(
                     shuffle_paths, spec, features=["speed"], center_feat_idx=[])
+
+                # Offline stitched ground truth (correct independence-assumption baseline)
+                sub2_prims = [p for p in PRIMITIVES if p != "Subscenario1"]
+                rho_stitch, eps_stitch = compute_stitched_shuffle_rho(
+                    logs, spec, sub2s=sub2_prims)
+                diff_stitch = abs(rho_comp_s - rho_stitch)
+                tol_stitch  = 2.0 * (eps_comp_s + eps_stitch) + 0.05
+                status_stitch = "OK" if diff_stitch <= tol_stitch else "FAIL"
+                print(f"  [shuffle] comp={rho_comp_s:.4f}+/-{eps_comp_s:.4f}  "
+                      f"stitched={rho_stitch:.4f}+/-{eps_stitch:.4f}  "
+                      f"|diff|={diff_stitch:.4f}  tol={tol_stitch:.4f}  {status_stitch}")
+
+                # Broken sim mono (kept for reference, flagged)
                 if mono_shuf_csv.exists():
                     rho_mono_s = relabel_traces(str(mono_shuf_csv), spec)
                     n_mono_s   = pd.read_csv(mono_shuf_csv)["trace_id"].nunique()
                     eps_mono_s = hoeffding_eps(n_mono_s)
-                    diff_s     = abs(rho_comp_s - rho_mono_s)
-                    tol_s      = 2.0 * (eps_comp_s + eps_mono_s) + 0.15
-                    status     = "OK" if diff_s <= tol_s else "FAIL"
-                    print(f"  [shuffle] comp={rho_comp_s:.4f}+/-{eps_comp_s:.4f}  "
-                          f"mono={rho_mono_s:.4f}+/-{eps_mono_s:.4f}  "
-                          f"|diff|={diff_s:.4f}  tol={tol_s:.4f}  {status}")
-                else:
-                    print(f"  [shuffle] comp={rho_comp_s:.4f}+/-{eps_comp_s:.4f}  "
-                          f"(MonolithicShuffle not ready)")
+                    print(f"  [shuf-sim] mono={rho_mono_s:.4f}+/-{eps_mono_s:.4f}"
+                          f"  (broken: trajectory mismatch in perm[1]/perm[2])")
             except Exception as e:
                 print(f"  [shuffle] error: {e}")
 
