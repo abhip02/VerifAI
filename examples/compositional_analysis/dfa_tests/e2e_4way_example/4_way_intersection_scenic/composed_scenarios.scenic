@@ -245,3 +245,56 @@ scenario MonolithicShuffle():
     compose:
         while True:
             wait
+
+
+# --- Far-spawn Sub2 variants for steer gap analysis ---
+# Ported from the compositional-analysis branch (storage_paper_steer_fix
+# generation). Identical trajectory to Subscenario2*, but spawn at
+# SHUFFLE_SUB2_SPAWN_DIST (-20m) with a turn_speed-pinned behavior (no
+# prewarm throttle jitter). Spawning 20m out lets FollowLaneBehavior
+# (high gain) reach UBER_SPEED before the intersection; turn_speed keeps
+# TurnBehavior (tiny PID gain ~0.04, tops out ~0.5 m/s) at speed through
+# the turn — the dh signature the sustained_steer spec thresholds assume.
+# EgoBehaviorFar is local to this block so the shared EgoBehavior (used
+# by Subscenario1/Main) keeps its current-branch semantics.
+
+SHUFFLE_SUB2_SPAWN_DIST = -20.0
+
+behavior EgoBehaviorFar(trajectory):
+    spd = UBER_SPEED
+    do FollowTrajectoryBehavior(trajectory=trajectory, target_speed=spd, turn_speed=spd)
+    while True:
+        wait
+
+
+scenario Subscenario2L_far():
+    setup:
+        ego = new Car following roadDirection from uberSpawnPoint for SHUFFLE_SUB2_SPAWN_DIST,
+                with behavior EgoBehaviorFar(trajectory=[straight_maneuver.startLane,
+                                                         left_maneuver.connectingLane,
+                                                         left_maneuver.endLane])
+    compose:
+        while True:
+            wait
+
+
+scenario Subscenario2R_far():
+    setup:
+        ego = new Car following roadDirection from uberSpawnPoint for SHUFFLE_SUB2_SPAWN_DIST,
+                with behavior EgoBehaviorFar(trajectory=[straight_maneuver.startLane,
+                                                         right_maneuver.connectingLane,
+                                                         right_maneuver.endLane])
+    compose:
+        while True:
+            wait
+
+
+scenario Subscenario2S_far():
+    setup:
+        ego = new Car following roadDirection from uberSpawnPoint for SHUFFLE_SUB2_SPAWN_DIST,
+                with behavior EgoBehaviorFar(trajectory=[straight_maneuver.startLane,
+                                                         straight_maneuver.connectingLane,
+                                                         straight_maneuver.endLane])
+    compose:
+        while True:
+            wait

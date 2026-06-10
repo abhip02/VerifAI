@@ -858,6 +858,8 @@ def _worker_generate_scenario(job: Mapping[str, object]) -> Tuple[str, str]:
     model = job.get("model") or DEFAULT_SCENIC_MODEL
     max_iterations = int(job.get("max_iterations", 2000))
     position = int(job.get("position", 0))
+    time_budget = float(job.get("time_budget") or float("inf"))
+    deadline = time.monotonic() + time_budget
 
     save_dir = save_dir / scenario_name
     save_dir.mkdir(parents=True, exist_ok=True)
@@ -905,6 +907,13 @@ def _worker_generate_scenario(job: Mapping[str, object]) -> Tuple[str, str]:
         attempts = 0
         max_attempts = max(1000, n * 20)
         while trace_id < n and attempts < max_attempts:
+            if time.monotonic() >= deadline:
+                msg = (
+                    f"[{scenario_name}] time budget ({time_budget:.0f}s) reached "
+                    f"with {trace_id} completed traces"
+                )
+                bar.write(msg) if bar is not None else print(msg)
+                break
             attempts += 1
             try:
                 scene, _ = sc.generate(maxIterations=max_iterations, verbosity=0)
@@ -945,6 +954,7 @@ def generate_graph_scenarios(
     backend: Optional[str] = None,
     mode2d: Optional[bool] = None,
     max_iterations: int = 2000,
+    time_budget: Union[int, float] = float("inf"),
 ) -> Dict[str, str]:
     """Per-primitive trace generation for SELF-CONTAINED scenario primitives.
 
@@ -1011,6 +1021,7 @@ def generate_graph_scenarios(
             "model": scenic_model,
             "max_iterations": max_iterations,
             "position": idx,
+            "time_budget": time_budget,
         }
         for idx, name in enumerate(primitives)
     ]

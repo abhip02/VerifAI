@@ -591,6 +591,9 @@ SCENIC_CSVS_FOR_DH = (
     "Subscenario2L",
     "Subscenario2R",
     "Subscenario2S",
+    "Subscenario2L_far",
+    "Subscenario2R_far",
+    "Subscenario2S_far",
     "MonolithicMain",
     "MonolithicShuffle",
 )

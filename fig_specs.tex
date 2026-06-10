@@ -1,0 +1,89 @@
+% Fig. 2 — Specifications considered throughout the experiments.
+% DFA visualizations of the four specs in scenic_scenarios/specs.py,
+% with the concrete MetaDrive thresholds ($v$ in m/s, $\delta$ = steering
+% input). Scenic uses the adapted values (tau_s=1.0, k=5, v_hi=3.0,
+% v_lo=1.5, |dtheta|>0.035 rad, K=20).
+% Requires in the preamble:
+%   \usepackage{tikz}
+%   \usetikzlibrary{automata, positioning, arrows.meta}
+%   \usepackage{subfig}
+
+\tikzset{
+  specdfa/.style={
+    shorten >=1pt, node distance=1.2cm and 1.35cm, on grid, auto,
+    >={Stealth[length=4pt]},
+    every state/.style={font=\scriptsize, inner sep=1pt, minimum size=14pt},
+    every edge/.style={draw, ->},
+    font=\tiny,
+    initial text={},
+  },
+}
+
+\begin{figure}[t]
+    \centering
+    \captionsetup[subfloat]{justification=centering}
+  \subfloat[\emph{2-Stop} (safety)\label{fig:spec_two_stop}]{%
+    \begin{tikzpicture}[specdfa]
+      \node[state, initial, accepting] (q0) {$q_0$};
+      \node[state, accepting, right=of q0] (q1) {$q_1$};
+      \node[state, right=of q1] (qb) {$q_\bot$};
+      \path (q0) edge[loop above] node {$v \ge 3.5$} (q0)
+            (q0) edge node {$v < 3.5$} (q1)
+            (q1) edge[loop above] node {$v \ge 3.5$} (q1)
+            (q1) edge node {$v < 3.5$} (qb)
+            (qb) edge[loop above] node {$\ast$} (qb);
+    \end{tikzpicture}}
+    \hfill%
+  \subfloat[\emph{Tollgate} (safety)\label{fig:spec_tollgate}]{%
+    \begin{tikzpicture}[specdfa]
+      \node[state, initial, accepting] (q0) {$q_0$};
+      \node[state, accepting, right=of q0] (s1) {$s_1$};
+      \node[state, accepting, right=of s1] (s2) {$s_2$};
+      \node[state, right=of s2] (qb) {$q_\bot$};
+      \path (q0) edge[loop above] node {$v \ge 3.5$} (q0)
+            (q0) edge node {$v < 3.5$} (s1)
+            (s1) edge node {$v < 3.5$} (s2)
+            (s2) edge node {$v < 3.5$} (qb)
+            (s1) edge[bend left=30] (q0)
+            (s2) edge[bend left=45] node[below] {$v \ge 3.5$} (q0)
+            (qb) edge[loop above] node {$\ast$} (qb);
+    \end{tikzpicture}}
+\\
+  \subfloat[\emph{V-Shaped} (co-safety)\label{fig:spec_v_shaped}]{%
+    \begin{tikzpicture}[specdfa]
+      \node[state, initial] (q0) {$q_0$};
+      \node[state, right=of q0] (q1) {$q_1$};
+      \node[state, right=of q1] (q2) {$q_2$};
+      \node[state, accepting, right=of q2] (qf) {$q_F$};
+      \path (q0) edge[loop above] node {$v < 7$} (q0)
+            (q0) edge node {$v \ge 7$} (q1)
+            (q1) edge[loop above] node {$v > 3.5$} (q1)
+            (q1) edge node {$v \le 3.5$} (q2)
+            (q2) edge[loop above] node {$v < 7$} (q2)
+            (q2) edge node {$v \ge 7$} (qf)
+            (qf) edge[loop above] node {$\ast$} (qf);
+    \end{tikzpicture}}
+    \hfill%
+  \subfloat[\emph{Sustained} steering (co-safety)\label{fig:spec_sustained}]{%
+    \begin{tikzpicture}[specdfa]
+      \node[state, initial] (q0) {$q_0$};
+      \node[state, right=1.55cm of q0] (s1) {$s_1$};
+      \node[state, right=1.1cm of s1] (s2) {$s_2$};
+      \node[state, right=1.1cm of s2] (s3) {$s_3$};
+      \node[state, accepting, right=1.55cm of s3] (qf) {$q_F$};
+      \path (q0) edge[loop above] node {$|\delta| \le 0.2$} (q0)
+            (q0) edge node {$|\delta| > 0.2$} (s1)
+            (s1) edge (s2)
+            (s2) edge (s3)
+            (s3) edge node {$|\delta| > 0.2$} (qf)
+            (s1) edge[bend left=28] (q0)
+            (s2) edge[bend left=36] (q0)
+            (s3) edge[bend left=44] node[below] {$|\delta| \le 0.2$} (q0)
+            (qf) edge[loop above] node {$\ast$} (qf);
+    \end{tikzpicture}}
+  \caption{The four specifications as DFAs over per-step trace labels
+  (double circles: accepting; $\ast$: any label; unlabeled edges carry the
+  label of the parallel labeled edge). MetaDrive thresholds shown ($v$ in
+  m/s, $\delta$ = steering input); Scenic uses adapted values.}
+  \label{fig:specs}
+\end{figure}

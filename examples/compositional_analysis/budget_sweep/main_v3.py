@@ -83,10 +83,35 @@ SCENIC_PRIMITIVES = (
     "Subscenario2R",
     "Subscenario2S",
 )
+# Per-spec primitive trace sources: logical scenario name → trace dir under
+# SCENIC_BASE. The composition paths always reference the logical names;
+# sustained_steer swaps in the `_far` generation (storage_paper_steer_fix),
+# whose spawn-far geometry the steering spec's dh thresholds assume. The
+# other three specs use the regular set.
+SCENIC_PRIM_DIRS_DEFAULT = {p: p for p in SCENIC_PRIMITIVES}
+SCENIC_PRIM_DIRS_STEER = {
+    "Subscenario1": "Subscenario1",
+    "Subscenario2L": "Subscenario2L_far",
+    "Subscenario2R": "Subscenario2R_far",
+    "Subscenario2S": "Subscenario2S_far",
+}
 SCENIC_MONO = {
     "choose": "MonolithicMain",
     "shuffle": "MonolithicShuffle",
 }
+# Shuffle ground truth comes from the natively-executed ShuffleMain scenario
+# (real per-segment respawns) rather than the MonolithicShuffle behavior
+# chain: the chained behavior never moves the ego to each segment's start,
+# so its corrective arcs poison dh-based specs and its continuous PID
+# hand-offs erase the inter-segment speed dips the specs are meant to see.
+# ShuffleMain's respawn teleports leave spike rows; _clean_shufflemain drops
+# each spike + the following SHUFFLE_BOUNDARY_TRIM rows (the respawn prewarm,
+# mirroring the per-primitive Sub2 trim) and re-derives dh zeroed across the
+# gaps. This reproduces the paper-table shuffle monoliths exactly for
+# two_stops / tollgate / sustained_steer.
+SHUFFLEMAIN_DIR = "ShuffleMain"
+SHUFFLEMAIN_CLEAN_DIR = "ShuffleMain_clean"
+SHUFFLE_BOUNDARY_TRIM = 10
 SCENIC_ENTRYPOINT = {
     "choose": "Main",
     "shuffle": "ShuffleMain",
@@ -393,6 +418,42 @@ def _have_traces(path: Path) -> bool:
     return path.is_file() and path.stat().st_size > 0
 
 
+def _ensure_clean_shufflemain() -> Path:
+    """Materialize the boundary-cleaned ShuffleMain CSV (cached by mtime)."""
+    src = SCENIC_BASE / SHUFFLEMAIN_DIR / "traces.csv"
+    dst = SCENIC_BASE / SHUFFLEMAIN_CLEAN_DIR / "traces.csv"
+    if dst.is_file() and dst.stat().st_mtime >= src.stat().st_mtime:
+        return dst
+    import numpy as np
+    import pandas as pd
+
+    df = pd.read_csv(src, low_memory=False).sort_values(["trace_id", "step"])
+    dx = df.groupby("trace_id")["x"].diff().abs()
+    dy = df.groupby("trace_id")["y"].diff().abs()
+    spike = ((dx.fillna(0) ** 2 + dy.fillna(0) ** 2) ** 0.5 > 5) | (df["speed"] > 9)
+    drop = spike.copy()
+    by_trace = spike.groupby(df["trace_id"])
+    for i in range(1, SHUFFLE_BOUNDARY_TRIM + 1):
+        drop = drop | by_trace.shift(i).fillna(False)
+    out = df[~drop].copy()
+
+    def _dh(grp):
+        d = grp["heading"].diff().abs()
+        d = d.apply(
+            lambda v: min(v, 2 * np.pi - v) if (pd.notna(v) and v <= 2 * np.pi) else 0.0
+        )
+        d[grp["step"].diff() > 1] = 0.0
+        return d.fillna(0.0)
+
+    out["dh"] = out.groupby("trace_id", group_keys=False).apply(
+        _dh, include_groups=False
+    )
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    out.to_csv(dst, index=False)
+    print(f"[clean] ShuffleMain → {dst} ({len(out)}/{len(df)} rows kept)")
+    return dst
+
+
 def _ensure_md_traces(
     n_traces: int,
     gen_workers: int = 1,
@@ -630,7 +691,7 @@ def _scenic_paths(combo: str):
 
 
 def _run_metadrive(
-    spec, combo: str, max_traces_comp, max_traces_mono
+    spec, spec_name: str, combo: str, max_traces_comp, max_traces_mono
 ) -> tuple[float, float, float]:
     prim_paths = {
         p: _filtered_csv(MD_BASE / p / "traces.csv", _resolve_cap(p, max_traces_comp))
@@ -650,24 +711,33 @@ def _run_metadrive(
 
 
 def _run_scenic(
-    spec, combo: str, max_traces_comp, max_traces_mono
+    spec, spec_name: str, combo: str, max_traces_comp, max_traces_mono
 ) -> tuple[float, float, float]:
+    prim_dirs = (
+        SCENIC_PRIM_DIRS_STEER
+        if spec_name == "sustained_steer"
+        else SCENIC_PRIM_DIRS_DEFAULT
+    )
     logs = {
         p: _filtered_csv(
-            SCENIC_BASE / p / "traces.csv", _resolve_cap(p, max_traces_comp)
+            SCENIC_BASE / d / "traces.csv", _resolve_cap(p, max_traces_comp)
         )
-        for p in SCENIC_PRIMITIVES
+        for p, d in prim_dirs.items()
     }
     engine = CompositionalAnalysisEngine(ScenarioBase(logs))
     rho_safe_comp, eps = engine.check_with_dfa_scenic(
         _scenic_paths(combo), spec, features=["speed"], center_feat_idx=[]
     )
     mono_name = SCENIC_MONO[combo]
+    # Cap lookups stay keyed by mono_name so the calibration dicts apply;
+    # the shuffle CSV itself comes from the cleaned native execution.
+    mono_src = (
+        _ensure_clean_shufflemain()
+        if combo == "shuffle"
+        else SCENIC_BASE / mono_name / "traces.csv"
+    )
     rho_safe_mono = relabel_traces(
-        _filtered_csv(
-            SCENIC_BASE / mono_name / "traces.csv",
-            _resolve_cap(mono_name, max_traces_mono),
-        ),
+        _filtered_csv(mono_src, _resolve_cap(mono_name, max_traces_mono)),
         spec,
     )
     return float(rho_safe_comp), float(eps), float(rho_safe_mono)
@@ -748,7 +818,7 @@ def run_cell_convergence(
         mc = _scale_caps(mono_caps_calib, factor) if mono_caps_calib else None
         n_mono = _resolve_cap(mono_name, mc) if mc else None
 
-        rho_safe_c, eps_c, rho_safe_m = runner(spec, cell.combo, cc, mc)
+        rho_safe_c, eps_c, rho_safe_m = runner(spec, cell.spec_name, cell.combo, cc, mc)
         rho_c = _report_rho(cell.spec_name, rho_safe_c)
         rho_m = _report_rho(cell.spec_name, rho_safe_m)
         eps_m = _normal_ci_half(rho_m, n_mono) if n_mono else float("nan")
@@ -791,7 +861,7 @@ def run_cell(
     spec = cell.spec_factory()
     t0 = time.time()
     rho_safe_comp, eps_comp, rho_safe_mono = runner(
-        spec, cell.combo, max_traces_comp, max_traces_mono
+        spec, cell.spec_name, cell.combo, max_traces_comp, max_traces_mono
     )
     rho_comp = _report_rho(cell.spec_name, rho_safe_comp)
     rho_mono = _report_rho(cell.spec_name, rho_safe_mono)
