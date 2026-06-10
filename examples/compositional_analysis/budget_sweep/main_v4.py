@@ -628,11 +628,36 @@ def main(
     print(f"\n[main_v4] wrote {len(rows)} summary rows → {out_csv}")
     print(f"[main_v4] convergence CSVs + plots → {per_cell_dir}")
 
+    # Final image bundle: one folder with every cell plot, named by the
+    # budget marker (plots_15min/, plots_30min/, ...) — the drop-in source
+    # for the paper's figures/time-budget/ directory.
+    minutes = int(round(gen_time_budget / 60))
+    plots_dir = _V4_SAVE_ROOT / f"plots_{minutes}min"
+    shutil.rmtree(plots_dir, ignore_errors=True)
+    plots_dir.mkdir(parents=True)
+    pngs = sorted(per_cell_dir.glob("*.png"))
+    for png in pngs:
+        shutil.copy2(png, plots_dir / png.name)
+    print(f"[main_v4] {len(pngs)} plots bundled → {plots_dir}")
+
     if wandb:
         table = wandb.Table(columns=_RESULT_FIELDS)
         for r in rows:
             table.add_data(*[r.get(k) for k in _RESULT_FIELDS])
         wandb.log({"results_table": table})
+
+        # Image gallery keyed by the budget marker, then the bundle as a
+        # named artifact (download with: wandb artifact get
+        # budget_sweep_v4_plots_15min).
+        wandb.log(
+            {
+                f"final_plots_{minutes}min/{png.stem}": wandb.Image(str(png))
+                for png in pngs
+            }
+        )
+        art = wandb.Artifact(f"budget_sweep_v4_plots_{minutes}min", type="plots")
+        art.add_dir(str(plots_dir))
+        wandb.log_artifact(art)
 
         art = wandb.Artifact("budget_sweep_v4_results", type="results")
         art.add_file(str(out_csv))
