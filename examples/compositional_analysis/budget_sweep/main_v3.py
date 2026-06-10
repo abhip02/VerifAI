@@ -682,6 +682,21 @@ _RUNNERS: dict[str, Callable] = {
 _CALIB_BUDGET_S = 1800.0  # the wall-clock budget the calibration dicts represent
 _CI_Z = 1.96  # 95% normal-approx CI half-width for the monolithic side
 
+# Specs whose DFAs are co-safety automata (built as the absorbing-reject
+# complement of a co-safety property). For these, the engine returns the
+# satisfaction prob of the complement and the paper reports 1 − ρ.
+# Safety specs (two_stops, tollgate) report ρ directly — no flip.
+_COSAFETY_SPECS = {"vshape", "sustained_steer"}
+
+
+def _report_rho(spec_name: str, rho_safe: float) -> float:
+    """Convert engine output (ρ on the absorbing-reject automaton) to the
+    paper-table value: identity for safety, complement for co-safety.
+    """
+    if spec_name in _COSAFETY_SPECS:
+        return 1.0 - float(rho_safe)
+    return float(rho_safe)
+
 
 def _scale_caps(caps: dict[str, int], factor: float) -> dict[str, int]:
     """Scale every value in a cap dict by ``factor`` (rounded, ≥1)."""
@@ -734,8 +749,8 @@ def run_cell_convergence(
         n_mono = _resolve_cap(mono_name, mc) if mc else None
 
         rho_safe_c, eps_c, rho_safe_m = runner(spec, cell.combo, cc, mc)
-        rho_c = 1.0 - rho_safe_c
-        rho_m = 1.0 - rho_safe_m
+        rho_c = _report_rho(cell.spec_name, rho_safe_c)
+        rho_m = _report_rho(cell.spec_name, rho_safe_m)
         eps_m = _normal_ci_half(rho_m, n_mono) if n_mono else float("nan")
 
         records.append(
@@ -778,8 +793,8 @@ def run_cell(
     rho_safe_comp, eps_comp, rho_safe_mono = runner(
         spec, cell.combo, max_traces_comp, max_traces_mono
     )
-    rho_comp = 1.0 - rho_safe_comp
-    rho_mono = 1.0 - rho_safe_mono
+    rho_comp = _report_rho(cell.spec_name, rho_safe_comp)
+    rho_mono = _report_rho(cell.spec_name, rho_safe_mono)
     return {
         "cell": cell.name,
         "backend": cell.backend,

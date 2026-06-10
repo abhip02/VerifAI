@@ -367,22 +367,33 @@ import pandas as _pd
 # traces. Defaults below match the appendix.
 
 WARMUP_STEPS = 25  # Scenic warmup (App C: 25)
-WARMUP_STEPS_MD = 10  # MetaDrive warmup (App C: 10)
+# MD warmup restored to 0 to match the partner's
+# dfa_tests/test_check_with_dfa_metadrive_*.py specs (no warmup gate)
+# that produced the Overleaf paper table.
+WARMUP_STEPS_MD = 0
 
 # Tollgate — resetting consecutive-slow counter, reject at k.
-TOLLGATE_SLOW_MD = 0.5
-TOLLGATE_K_MD = 2
+# Partner's tollgate spec: STOP_THRESHOLD_MS=3.5, REQUIRED_WAIT_STEPS=3
+# (Overleaf caption: "Tollgate (safety), k=3").
+TOLLGATE_SLOW_MD = 3.5
+TOLLGATE_K_MD = 3
 TOLLGATE_SLOW_SCENIC = 1.0
 TOLLGATE_K_SCENIC = 5
 
 # Two-stop — count near-stop events, reject on 2nd.
-NEAR_STOP_MD = 1.5
+# Partner's two_stops spec: NEAR_STOP_MS=3.5.
+NEAR_STOP_MD = 3.5
 NEAR_STOP_SCENIC = 1.0
 
 # V-shape — never fast→slow→fast (safety complement of co-safety).
-VSHAPE_HIGH_MD = 5.0
+# Partner's fast_twice spec: HIGH_SPEED_MS=7.0, LOW_SPEED_MS=3.5 (MD).
+# Scenic uses smaller LOW/HIGH so the labels are reachable on the
+# slower Scenic backend; LOW must stay strictly < HIGH or the "mid"
+# label becomes unreachable.
+VSHAPE_HIGH_MD = 7.0
+VSHAPE_LOW_MD = 3.5
 VSHAPE_HIGH_SCENIC = 3.0
-VSHAPE_LOW = 1.5
+VSHAPE_LOW_SCENIC = 1.5
 
 
 def _make_tollgate(slow_thresh: float, k: int, warmup: int):
@@ -491,11 +502,11 @@ def _make_vshape_safety(high: float, low: float, warmup: int):
 
 
 def make_vshape_safety_spec_md():
-    return _make_vshape_safety(VSHAPE_HIGH_MD, VSHAPE_LOW, WARMUP_STEPS_MD)
+    return _make_vshape_safety(VSHAPE_HIGH_MD, VSHAPE_LOW_MD, WARMUP_STEPS_MD)
 
 
 def make_vshape_safety_spec_scenic():
-    return _make_vshape_safety(VSHAPE_HIGH_SCENIC, VSHAPE_LOW, WARMUP_STEPS)
+    return _make_vshape_safety(VSHAPE_HIGH_SCENIC, VSHAPE_LOW_SCENIC, WARMUP_STEPS)
 
 
 make_vshape_safety_spec = make_vshape_safety_spec_scenic
