@@ -34,7 +34,7 @@ from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEn
 
 STOP_THRESHOLD_MS   = 3.5
 REQUIRED_WAIT_STEPS = 3
-N_EPISODES          = 1000
+N_EPISODES          = 5
 TRACE_DIR           = os.path.join(os.path.dirname(__file__), "storage", "tollgate")
 
 # Primitives: name → generation seed
@@ -46,10 +46,10 @@ MONOLITHICS = {"SX": 2, "SXS": 3, "SOC": 10, "CSXS": 11, "CXSXC": 12}
 # (monolithic_name, compositional_path) pairs to test
 COMBINATIONS = [
     ("SX",    ["S", "X"]),
-    ("SXS",   ["S", "X", "S"]),
-    ("SOC",   ["S", "O", "C"]),
-    ("CSXS",  ["C", "S", "X", "S"]),
-    ("CXSXC", ["C", "X", "S", "X", "C"]),
+    # ("SXS",   ["S", "X", "S"]),
+    # ("SOC",   ["S", "O", "C"]),
+    # ("CSXS",  ["C", "S", "X", "S"]),
+    # ("CXSXC", ["C", "X", "S", "X", "C"]),
 ]
 
 

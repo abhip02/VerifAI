@@ -192,15 +192,19 @@ class CompositionalAnalysisEngine:
 
         # Forward pass: compute q_init_dist at the start of each step,
         # conditioned on acceptance through all prior steps.
-        q_init_dists: List[Dict[object, float]] = []
-        q_dist: Dict[object, float] = {spec._dfa.start: 1.0}
-        for step in steps:
-            q_init_dists.append(q_dist)
-            q_dist = self._advance_q_dist_through_step(step, spec, q_dist)
+        # q_init_dists: List[Dict[object, float]] = []
+        # q_dist: Dict[object, float] = {spec._dfa.start: 1.0}
+        # for step in steps:
+        #     q_init_dists.append(q_dist)
+        #     # q_dist = self._advance_q_dist_through_step(step, spec, q_dist)
+        #     q_dist = self.compute_q_dist(step, spec)
+
+        # print(q_init_dists)
+        # input()
 
         # First step (no IS)
         first_rho, first_eps_ratio = self._evaluate_step(
-            steps[0], spec, q_init_dists[0], per_step_delta,
+            steps[0], spec, None, per_step_delta,
             prev_step=None, prev_q_init_dist=None,
             features=features, center_feat_idx=center_feat_idx,
             bw_method=bw_method,
@@ -219,23 +223,27 @@ class CompositionalAnalysisEngine:
         # trivially rho=1 (absorbing accepting state means once accepted, always
         # accepted regardless of subsequent segments).
         is_cosafety = not spec._dfa._label(spec._dfa.start)
+        if is_cosafety:
+            spec = ~spec # complement
 
         # Subsequent steps
         for i in range(1, n):
-            if is_cosafety:
-                eps_rho_ratios.append(0.0)
-                continue
-
             step_rho, step_eps_ratio = self._evaluate_step(
-                steps[i], spec, q_init_dists[i], per_step_delta,
+                steps[i], spec, None, per_step_delta,
                 prev_step=steps[i - 1],
-                prev_q_init_dist=q_init_dists[i - 1],
+                prev_q_init_dist=None,
                 features=features, center_feat_idx=center_feat_idx,
                 bw_method=bw_method,
             )
+            
+            # print(q_init_dists[i])
+            # input()
 
             rho *= step_rho
             eps_rho_ratios.append(step_eps_ratio)
+            
+        if is_cosafety:
+            rho = 1 - rho
 
         uncertainty = rho * np.sqrt(sum(e ** 2 for e in eps_rho_ratios))
         return rho, uncertainty
@@ -325,20 +333,22 @@ class CompositionalAnalysisEngine:
             rho_step = 0.0
             weighted_eps_sq = 0.0
 
-            for q_init, w_q in q_init_dist.items():
-                if w_q == 0:
+            # TODO: sum over all accepting sub-specifications 
+            # w_q is p term we want: the probability that, by the time we arrive at step i, the DFA prefix has landed in state q
+            # for q_init, w_q in q_init_dist.items():
+            #     if w_q == 0:
+            #         continue
+            for branch_name, branch_weight in step.items():
+                df = self.scenario_base.data[branch_name]
+                labels = self._dfa_labels(df, spec)
+                N = len(labels)
+                if N == 0:
                     continue
-                for branch_name, branch_weight in step.items():
-                    df = self.scenario_base.data[branch_name]
-                    labels = self._dfa_labels_at_q(df, spec, q_init)
-                    N = len(labels)
-                    if N == 0:
-                        continue
-                    branch_rho_q = float(np.mean(labels))
-                    branch_eps_q = np.sqrt(np.log(2 / per_step_delta) / (2 * N))
+                branch_rho_q = float(np.mean(labels))
+                branch_eps_q = np.sqrt(np.log(2 / per_step_delta) / (2 * N))
 
-                    rho_step += w_q * branch_weight * branch_rho_q
-                    weighted_eps_sq += (w_q * branch_weight * branch_eps_q) ** 2
+                rho_step += branch_weight * branch_rho_q
+                weighted_eps_sq += (branch_weight * branch_eps_q) ** 2
 
             if rho_step == 0.0:
                 return 0.0, 0.0
@@ -348,16 +358,29 @@ class CompositionalAnalysisEngine:
         if not features:
             raise ValueError("Feature list must be provided for KDE.")
 
-        feats_by_q = self._get_prev_step_accepting_features_by_q(
-            prev_step, spec, prev_q_init_dist, features, center_feat_idx,
-        )
+        
+        # print(prev_step, type(prev_step))
+        # input()
+
+        q_dist = self.compute_q_dist(prev_step, spec)
 
         rho_step = 0.0
         weighted_eps_sq = 0.0
+        
+        # print(q_dist)
+        # input()
+        
 
-        for q_init, w_q in q_init_dist.items():
-            if w_q == 0 or q_init not in feats_by_q:
-                continue
+        for q_pair, p in q_dist.items():
+            q_init, q_final = q_pair
+            
+            feats_by_q = self._get_prev_step_accepting_features_by_q(
+                prev_step, spec, q_init, features, center_feat_idx,
+            )
+            
+            print(feats_by_q)
+            input()
+
             s_last_features, s_last_weights = feats_by_q[q_init]
             if s_last_features.shape[0] < 2:
                 continue
@@ -398,8 +421,8 @@ class CompositionalAnalysisEngine:
                 N_eff = total_w ** 2 / total_w2 if total_w2 > 0 else 1.0
                 branch_eps_q = np.sqrt(np.log(2 / per_step_delta) / (2 * N_eff))
 
-                rho_step += w_q * branch_weight * branch_rho_q
-                weighted_eps_sq += (w_q * branch_weight * branch_eps_q) ** 2
+                rho_step += branch_weight * branch_rho_q
+                weighted_eps_sq += (branch_weight * branch_eps_q) ** 2
 
         if rho_step == 0.0:
             return 0.0, 0.0
@@ -409,7 +432,7 @@ class CompositionalAnalysisEngine:
         self,
         prev_step: Dict[str, float],
         spec: automaton_specification,
-        prev_q_init_dist: Dict[object, float],
+        q_init,
         features: List[str],
         center_feat_idx: Optional[List[int]],
     ) -> Dict[object, Tuple[np.ndarray, np.ndarray]]:
@@ -436,21 +459,21 @@ class CompositionalAnalysisEngine:
             s_last_all["trace_id"] = s_last_all["trace_id"].astype(str)
             s_last_indexed = s_last_all.set_index("trace_id")
 
-            for q_init, w_q in prev_q_init_dist.items():
-                if w_q == 0:
+            # # for q_init, w_q in prev_q_init_dist.items():
+            #     if w_q == 0:
+            #         continue
+            for tid, traj in grouped.items():
+                q_final = spec.advance_on_trace(traj, start=q_init)
+                if not spec._dfa._label(q_final):
+                    continue  # only accepting traces contribute
+                if tid not in s_last_indexed.index:
                     continue
-                for tid, traj in grouped.items():
-                    q_final = spec.advance_on_trace(traj, start=q_init)
-                    if not spec._dfa._label(q_final):
-                        continue  # only accepting traces contribute
-                    if tid not in s_last_indexed.index:
-                        continue
-                    feat_row = s_last_indexed.loc[tid, features].to_numpy()
+                feat_row = s_last_indexed.loc[tid, features].to_numpy()
 
-                    if q_final not in by_q:
-                        by_q[q_final] = {"feats": [], "weights": []}
-                    by_q[q_final]["feats"].append(feat_row)
-                    by_q[q_final]["weights"].append(branch_weight * w_q)
+                if q_final not in by_q:
+                    by_q[q_final] = {"feats": [], "weights": []}
+                by_q[q_final]["feats"].append(feat_row)
+                by_q[q_final]["weights"].append(branch_weight)
 
         result: Dict[object, Tuple[np.ndarray, np.ndarray]] = {}
         for q, d in by_q.items():
@@ -518,7 +541,6 @@ class CompositionalAnalysisEngine:
     def _dfa_labels(
         df: pd.DataFrame,
         spec: automaton_specification,
-        q_init_dist: Dict[object, float],
     ) -> Tuple[np.ndarray, Dict[object, float]]:
         """
         For each trace in df, compute acceptance probability by marginalising
@@ -534,8 +556,39 @@ class CompositionalAnalysisEngine:
         trace_ids = list(grouped.keys())
 
         labels = np.zeros(len(trace_ids))
-        q_final_accepting: Dict[object, float] = {}
 
+        # TODO: conditioning on acceptance
+        for idx, tid in enumerate(trace_ids):
+            traj = grouped[tid]
+            q_final = spec.advance_on_trace(traj, start=spec._dfa.start)
+            is_acc = spec._dfa._label(q_final)
+            # labels[idx] += w * (1.0 if is_acc else 0.0)
+            labels[idx] = is_acc
+            
+            # if is_acc:
+            #     q_final_accepting[q_final] = (
+            #         q_final_accepting.get(q_final, 0.0) + w
+            #     )
+
+        return labels
+    
+    
+    @staticmethod
+    def compute_labels(
+        df: pd.DataFrame,
+        spec: automaton_specification,
+        q_init_dist: Dict[object, float],
+    ) -> Tuple[np.ndarray, Dict[object, float]]:
+        grouped = {
+            str(tid): group.sort_values("step").to_dict("records")
+            for tid, group in df.groupby("trace_id")
+        }
+        trace_ids = list(grouped.keys())
+
+        labels = np.zeros(len(trace_ids))
+        q_final_accepting: Dict[object, float] = {q: 0.0 for q in spec._dfa.states}
+
+        # TODO: conditioning on acceptance
         for q_init, w in q_init_dist.items():
             if w == 0:
                 continue
@@ -543,12 +596,14 @@ class CompositionalAnalysisEngine:
                 traj = grouped[tid]
                 q_final = spec.advance_on_trace(traj, start=q_init)
                 is_acc = spec._dfa._label(q_final)
-                labels[idx] += w * (1.0 if is_acc else 0.0)
-
-                if is_acc:
-                    q_final_accepting[q_final] = (
-                        q_final_accepting.get(q_final, 0.0) + w
-                    )
+                # labels[idx] += w * (1.0 if is_acc else 0.0)
+                labels[idx] = is_acc
+                
+                q_final_accepting[q_final] += 1
+                # if is_acc:
+                #     q_final_accepting[q_final] = (
+                #         q_final_accepting.get(q_final, 0.0) + w
+                #     )
 
         total_acc = sum(q_final_accepting.values())
         if total_acc > 0:
@@ -558,6 +613,44 @@ class CompositionalAnalysisEngine:
             q_final_dist = {spec._dfa.start: 1.0}
 
         return labels, q_final_dist
+    
+    
+    def compute_q_dist(
+        self,
+        prev_step: Dict[str, float],
+        spec: automaton_specification,
+    ) -> Tuple[np.ndarray, Dict[object, float]]:
+        
+        q_dist: Dict[object, float] = {(q_init, q_final): 0.0 for q_init in spec._dfa.states() for q_final in spec._dfa.states()}
+        
+        for branch_name, branch_weight in prev_step.items():
+            q_dist_temp = {(q_init, q_final): 0.0 for q_init in spec._dfa.states() for q_final in spec._dfa.states()}
+            
+            df = self.scenario_base.data[branch_name]
+            grouped = {
+                str(tid): group.sort_values("step").to_dict("records")
+                for tid, group in df.groupby("trace_id")
+            }
+            trace_ids = list(grouped.keys())
+
+            for q_init in spec._dfa.states():
+                for idx, tid in enumerate(trace_ids):
+                    traj = grouped[tid]
+                    q_final = spec.advance_on_trace(traj, start=q_init)
+                    q_dist_temp[(q_init, q_final)] += 1
+
+            n = len(trace_ids)
+            # print(q_dist)
+            # input()
+            if n > 0:
+                q_dist = {q_pair: c / n * branch_weight + q_dist.get(q_pair, 0.0) for q_pair, c in q_dist_temp.items()}
+            else:
+                raise ValueError("No traces found in DataFrame.")
+
+        # print(q_dist)
+        # input()
+
+        return q_dist
 
     def falsify(
         self,
