@@ -190,7 +190,10 @@ def _md_expert_worker(name: str, seed: int, save_dir: str, n: int,
                       time_budget: float) -> str:
     """Generate one MetaDrive expert-policy scenario (runs in a subprocess —
     MetaDrive supports only one engine per process)."""
+    import logging
     import sys as _sys
+
+    logging.disable(logging.INFO)  # silence MetaDrive's per-episode log spam
 
     comp_dir = str(COMP_DIR)
     if comp_dir not in _sys.path:
