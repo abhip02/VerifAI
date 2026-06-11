@@ -212,12 +212,25 @@ def _md_expert_worker(name: str, seed: int, save_dir: str, n: int,
 
 
 def _generate_md(combos: set[str], time_budget: float, gen_workers: int) -> None:
-    from concurrent.futures import ProcessPoolExecutor
+    import concurrent.futures as cf
 
-    def _run_batch(names: list[str]) -> None:
+    def _batch_counts(names: list[str]) -> dict[str, int]:
+        counts = {}
+        for name in names:
+            csv = MD_BASE_V4 / name / "traces.csv"
+            counts[name] = _count_distinct_traces(csv) if csv.is_file() else 0
+        return counts
+
+    def _run_batch(names: list[str], desc: str) -> None:
         workers = max(1, min(gen_workers, len(names)))
-        with ProcessPoolExecutor(max_workers=workers) as pool:
-            futs = [
+        try:
+            from tqdm import tqdm
+        except ImportError:
+            tqdm = None
+        bar = tqdm(desc=desc, unit="trace") if tqdm else None
+
+        with cf.ProcessPoolExecutor(max_workers=workers) as pool:
+            pending = {
                 pool.submit(
                     _md_expert_worker,
                     name,
@@ -227,17 +240,28 @@ def _generate_md(combos: set[str], time_budget: float, gen_workers: int) -> None
                     time_budget,
                 )
                 for name in names
-            ]
-            for f in futs:
-                print(f"[gen] MD expert scenario {f.result()} done")
+            }
+            while pending:
+                done, pending = cf.wait(pending, timeout=10)
+                if bar is not None:
+                    counts = _batch_counts(names)
+                    bar.n = sum(counts.values())
+                    bar.set_postfix(counts, refresh=False)
+                    bar.refresh()
+                for f in done:
+                    f.result()  # surface worker exceptions
+        if bar is not None:
+            bar.close()
+        print(f"[gen] {desc}: " + "  ".join(
+            f"{k}={v}" for k, v in _batch_counts(names).items()))
 
     print(f"[gen] MD primitives {list(MD_PRIMITIVES)} ({time_budget:.0f}s each)")
-    _run_batch(list(MD_PRIMITIVES))
+    _run_batch(list(MD_PRIMITIVES), "MD primitives")
 
     todo = sorted(combos)
     if todo:
         print(f"[gen] MD monoliths {todo} ({time_budget:.0f}s each)")
-        _run_batch(todo)
+        _run_batch(todo, "MD monoliths")
 
 
 def _generate_scenic(combos: set[str], need_far: bool, time_budget: float) -> None:
