@@ -298,3 +298,86 @@ scenario Subscenario2S_far():
     compose:
         while True:
             wait
+
+
+# --- Natively executable shuffle composite (ground-truth generation) ---
+# ShuffleMain above is parser-only: its leaves' compose blocks are
+# `while True: wait`, so a `do` chain over them never advances past the
+# first segment. These *Seg variants are byte-identical to the leaves
+# except the behavior ends with `terminate`, which stops the enclosing
+# sub-scenario exactly when FollowTrajectoryBehavior completes its
+# trajectory. Combined with the simulator-side ego respawn (the stopped
+# segment's ego is destroyed and the next segment's ego reuses the
+# MetaDrive agent body via teleport), ShuffleMainExec runs all four
+# segments in ONE simulation — the per-segment respawn teleports are the
+# boundary spikes _clean_shufflemain trims.
+#
+# ShuffleMainExec is what the budget sweep actually simulates for the
+# shuffle ground truth; ShuffleMain stays untouched as the parser
+# entrypoint so composition-path names keep matching the per-primitive
+# trace directories (Subscenario1, Subscenario2L, ...).
+
+behavior EgoBehaviorSeg(trajectory):
+    do FollowTrajectoryBehavior(trajectory=trajectory, target_speed=UBER_SPEED)
+    terminate
+
+
+behavior EgoBehaviorSegPrewarm(trajectory):
+    prewarm_steps    = Uniform(0, 5, 10, 15, 20, 25)
+    prewarm_throttle = Range(0.4, 0.8)
+    for i in range(prewarm_steps):
+        take SetThrottleAction(prewarm_throttle), SetBrakeAction(0), SetSteerAction(0)
+    do FollowTrajectoryBehavior(trajectory=trajectory, target_speed=UBER_SPEED)
+    terminate
+
+
+scenario Subscenario1Seg():
+    setup:
+        ego = new Car following roadDirection from uberSpawnPoint for DISTANCE_TO_INTERSECTION,
+                with behavior EgoBehaviorSeg(trajectory=[straight_maneuver.startLane])
+    compose:
+        while True:
+            wait
+
+
+scenario Subscenario2LSeg():
+    setup:
+        ego = new Car following roadDirection from uberSpawnPoint for SUB2_DISTANCE_TO_INTERSECTION,
+                with behavior EgoBehaviorSegPrewarm(trajectory=[straight_maneuver.startLane,
+                                                                left_maneuver.connectingLane,
+                                                                left_maneuver.endLane])
+    compose:
+        while True:
+            wait
+
+
+scenario Subscenario2RSeg():
+    setup:
+        ego = new Car following roadDirection from uberSpawnPoint for SUB2_DISTANCE_TO_INTERSECTION,
+                with behavior EgoBehaviorSegPrewarm(trajectory=[straight_maneuver.startLane,
+                                                                right_maneuver.connectingLane,
+                                                                right_maneuver.endLane])
+    compose:
+        while True:
+            wait
+
+
+scenario Subscenario2SSeg():
+    setup:
+        ego = new Car following roadDirection from uberSpawnPoint for SUB2_DISTANCE_TO_INTERSECTION,
+                with behavior EgoBehaviorSegPrewarm(trajectory=[straight_maneuver.startLane,
+                                                                straight_maneuver.connectingLane,
+                                                                straight_maneuver.endLane])
+    compose:
+        while True:
+            wait
+
+
+scenario ShuffleMainExec():
+    compose:
+        do Subscenario1Seg()
+        do shuffle {
+            Subscenario2LSeg(): 1,
+            Subscenario2RSeg(): 1,
+            Subscenario2SSeg(): 1,
+        }

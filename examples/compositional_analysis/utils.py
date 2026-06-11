@@ -1,5 +1,6 @@
 import os
 import csv
+import time
 import numpy as np
 from stable_baselines3 import PPO
 from stable_baselines3.common.utils import set_random_seed
@@ -19,6 +20,7 @@ def generate_traces(
     obstacle_seed: int = 0,
     initial_speed_range: tuple = (40 / 3.6, 90 / 3.6),
     max_obstacle_distance: float = None,
+    time_budget: float = float("inf"),
 ):
     """
     Runs MetaDrive simulation using a trained PPO model or expert policy and logs trajectory traces.
@@ -33,6 +35,8 @@ def generate_traces(
         gif (bool): If True, generate top-down gifs instead of CSV traces.
         extra_obstacles (bool): If True, add random obstacles to force stopping.
         obstacle_seed (int): Random seed for obstacle generation.
+        time_budget (float): Wall-clock cap in seconds; episode loop stops
+            when it elapses even if fewer than ``n`` episodes have run.
     """
 
     if not expert:
@@ -71,7 +75,13 @@ def generate_traces(
         )
         writer.writeheader()
 
+    deadline = time.monotonic() + float(time_budget)
+
     for ep in range(n):
+        if time.monotonic() >= deadline:
+            print(f"[{scenario}] time budget ({time_budget:.0f}s) reached "
+                  f"after {trace_id} episodes")
+            break
         if spawned_obstacles:
             env.engine.clear_objects([obj.id for obj in spawned_obstacles])
             spawned_obstacles = []

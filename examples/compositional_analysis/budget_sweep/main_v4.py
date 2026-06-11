@@ -40,12 +40,11 @@ from verifai.generate_graph_traces import generate_graph_scenarios
 from examples.compositional_analysis.scenic_scenarios.specs import add_dh_column
 
 from .main_v3 import (
+    COMP_DIR,
     EXPERIMENTS,
     Cell,
     MD_COMBOS,
-    MD_MONO_SOURCES,
     MD_PRIMITIVES,
-    MD_PRIMITIVES_SRC,
     SCENIC_FILE,
     SCENIC_MAX_STEPS_MONO_MAIN,
     SCENIC_MAX_STEPS_MONO_SHUF,
@@ -105,6 +104,13 @@ SCENIC_MAX_STEPS_FAR = 200
 # ShuffleMain respawns the ego per segment, so each of the 4 segments pays
 # the Sub2-style prewarm — budget 4 full Sub2 windows.
 SCENIC_MAX_STEPS_SHUFFLEMAIN = 4 * SCENIC_MAX_STEPS_SUB2
+# The scenario actually simulated for the shuffle ground truth. ShuffleMain
+# itself is parser-only (its leaves never terminate, so a `do` chain over
+# them can't advance); ShuffleMainExec composes the *Seg leaf variants whose
+# behaviors `terminate` at trajectory completion. The generated directory is
+# renamed to SHUFFLEMAIN_DIR so everything downstream (cleaning, caps,
+# results keying) keeps using the ShuffleMain name.
+SHUFFLEMAIN_SCENARIO = "ShuffleMainExec"
 
 # Generation never targets a trace count — the wall-clock budget is the
 # stop condition. n is just a ceiling so the worker loop has a bound.
@@ -167,41 +173,68 @@ def _ensure_clean_shufflemain() -> Path:
 # ---------------------------------------------------------------------------
 
 
-def _generate_md(combos: set[str], time_budget: float, gen_workers: int) -> None:
-    print(f"[gen] MD primitives {list(MD_PRIMITIVES)} ({time_budget:.0f}s each)")
-    generate_graph_scenarios(
-        str(MD_PRIMITIVES_SRC),
-        list(MD_PRIMITIVES),
-        n=_N_TRACES_CEILING,
-        save_dir=str(MD_BASE_V4),
+# MetaDrive expert-policy generation (compositional-analysis branch
+# pipeline): S/X/C/O are MetaDrive PG map BLOCKS (Straight, X-intersection,
+# Curve, rOundabout) and the combos are multi-block maps, driven by
+# MetaDrive's built-in ExpertPolicy via
+# examples/compositional_analysis/utils.py::generate_traces. Seeds match
+# dfa_tests/test_check_with_dfa_cosafety_fast_twice.py — the generation
+# that produced the storage/vshape_speed* stores the paper table used.
+_MD_SEEDS = {
+    "S": 0, "X": 1, "C": 2, "O": 8,
+    "SX": 3, "SXS": 4, "SOC": 10, "CSXS": 11, "CXSXC": 12,
+}
+
+
+def _md_expert_worker(name: str, seed: int, save_dir: str, n: int,
+                      time_budget: float) -> str:
+    """Generate one MetaDrive expert-policy scenario (runs in a subprocess —
+    MetaDrive supports only one engine per process)."""
+    import sys as _sys
+
+    comp_dir = str(COMP_DIR)
+    if comp_dir not in _sys.path:
+        _sys.path.insert(0, comp_dir)  # utils.py does `from train import make_env`
+    from utils import generate_traces
+
+    generate_traces(
+        seed=seed,
+        save_dir=save_dir,
+        expert=True,
+        n=n,
+        scenario=name,
         time_budget=time_budget,
     )
+    return name
 
-    def _gen_one(combo: str) -> None:
-        src, mono_name = MD_MONO_SOURCES[combo]
-        print(f"[gen] MD monolith {combo} ({mono_name}, {time_budget:.0f}s)")
-        generate_graph_scenarios(
-            str(src),
-            [mono_name],
-            n=_N_TRACES_CEILING,
-            save_dir=str(MD_BASE_V4),
-            time_budget=time_budget,
-        )
-        src_dir = MD_BASE_V4 / mono_name
-        dst_dir = MD_BASE_V4 / combo
-        if src_dir.is_dir() and not dst_dir.exists():
-            src_dir.rename(dst_dir)
+
+def _generate_md(combos: set[str], time_budget: float, gen_workers: int) -> None:
+    from concurrent.futures import ProcessPoolExecutor
+
+    def _run_batch(names: list[str]) -> None:
+        workers = max(1, min(gen_workers, len(names)))
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            futs = [
+                pool.submit(
+                    _md_expert_worker,
+                    name,
+                    _MD_SEEDS[name],
+                    str(MD_BASE_V4),
+                    _N_TRACES_CEILING,
+                    time_budget,
+                )
+                for name in names
+            ]
+            for f in futs:
+                print(f"[gen] MD expert scenario {f.result()} done")
+
+    print(f"[gen] MD primitives {list(MD_PRIMITIVES)} ({time_budget:.0f}s each)")
+    _run_batch(list(MD_PRIMITIVES))
 
     todo = sorted(combos)
-    if gen_workers <= 1:
-        for combo in todo:
-            _gen_one(combo)
-    else:
-        from concurrent.futures import ThreadPoolExecutor
-
-        with ThreadPoolExecutor(max_workers=gen_workers) as pool:
-            for f in [pool.submit(_gen_one, c) for c in todo]:
-                f.result()
+    if todo:
+        print(f"[gen] MD monoliths {todo} ({time_budget:.0f}s each)")
+        _run_batch(todo)
 
 
 def _generate_scenic(combos: set[str], need_far: bool, time_budget: float) -> None:
@@ -237,11 +270,11 @@ def _generate_scenic(combos: set[str], need_far: bool, time_budget: float) -> No
         monos.append("MonolithicMain")
         max_steps["MonolithicMain"] = SCENIC_MAX_STEPS_MONO_MAIN
     if "shuffle" in combos:
-        # MonolithicShuffle keeps the calibration role it has in v3's cap
-        # dicts; the shuffle ground truth itself is the cleaned ShuffleMain.
-        monos += ["MonolithicShuffle", SHUFFLEMAIN_DIR]
-        max_steps["MonolithicShuffle"] = SCENIC_MAX_STEPS_MONO_SHUF
-        max_steps[SHUFFLEMAIN_DIR] = SCENIC_MAX_STEPS_SHUFFLEMAIN
+        # The shuffle ground truth is the cleaned ShuffleMain (simulated as
+        # ShuffleMainExec, see SHUFFLEMAIN_SCENARIO). "MonolithicShuffle"
+        # survives only as the cap-dict key — its scenario is not generated.
+        monos.append(SHUFFLEMAIN_SCENARIO)
+        max_steps[SHUFFLEMAIN_SCENARIO] = SCENIC_MAX_STEPS_SHUFFLEMAIN
     if monos:
         print(f"[gen] Scenic monoliths {monos} ({time_budget:.0f}s each)")
         generate_graph_scenarios(
@@ -252,6 +285,10 @@ def _generate_scenic(combos: set[str], need_far: bool, time_budget: float) -> No
             max_steps=max_steps,
             time_budget=time_budget,
         )
+        src_dir = SCENIC_BASE_V4 / SHUFFLEMAIN_SCENARIO
+        dst_dir = SCENIC_BASE_V4 / SHUFFLEMAIN_DIR
+        if src_dir.is_dir() and not dst_dir.exists():
+            src_dir.rename(dst_dir)
 
     if need_far:
         print(

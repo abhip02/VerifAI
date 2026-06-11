@@ -319,6 +319,10 @@ def _derive_heading_and_speed(
 
 def _trajectory_rows(simulation, trace_id: int) -> List[Dict[str, object]]:
     trajectory = simulation.result.trajectory
+    # Respawning composites (e.g. ShuffleMainExec) destroy the last segment's
+    # ego one tick before the compose block finishes, so the final frame can
+    # be empty. Frames always track the current segment's ego at index 0.
+    trajectory = [frame for frame in trajectory if len(frame) > 0]
     dt = float(getattr(simulation, "timestep", 1.0) or 1.0)
     termination_type = getattr(simulation.result, "terminationType", None)
     terminated_complete = getattr(termination_type, "name", "") == "scenarioComplete"
