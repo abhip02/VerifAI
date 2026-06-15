@@ -1,0 +1,30 @@
+digraph seq_CSXS {
+  rankdir=TB;
+  bgcolor="white";
+  nodesep=0.35;
+  ranksep=0.45;
+  node [fontname="Helvetica"];
+  edge [fontname="Helvetica", fontsize=11];
+  Main [label="Main", shape=box, style="rounded", color="#5a4ea8", fontcolor="black", width=1.0];
+  op0 [label="do", shape=box, style="rounded,filled", fillcolor="#dcd5f0", color="#5a4ea8", fontcolor="black"];
+  leaf0 [label="C", shape=box, style="rounded", color="#5a4ea8", fontcolor="black", width=0.7];
+  Main -> op0 [style=solid, color="black", arrowhead=normal];
+  op0 -> leaf0 [style=solid, color="black", arrowhead=normal];
+  op1 [label="do", shape=box, style="rounded,filled", fillcolor="#dcd5f0", color="#5a4ea8", fontcolor="black"];
+  leaf1 [label="S", shape=box, style="rounded", color="#5a4ea8", fontcolor="black", width=0.7];
+  Main -> op1 [style=solid, color="black", arrowhead=normal];
+  op1 -> leaf1 [style=solid, color="black", arrowhead=normal];
+  op2 [label="do", shape=box, style="rounded,filled", fillcolor="#dcd5f0", color="#5a4ea8", fontcolor="black"];
+  leaf2 [label="X", shape=box, style="rounded", color="#5a4ea8", fontcolor="black", width=0.7];
+  Main -> op2 [style=solid, color="black", arrowhead=normal];
+  op2 -> leaf2 [style=solid, color="black", arrowhead=normal];
+  op3 [label="do", shape=box, style="rounded,filled", fillcolor="#dcd5f0", color="#5a4ea8", fontcolor="black"];
+  leaf3 [label="S", shape=box, style="rounded", color="#5a4ea8", fontcolor="black", width=0.7];
+  Main -> op3 [style=solid, color="black", arrowhead=normal];
+  op3 -> leaf3 [style=solid, color="black", arrowhead=normal];
+  op0 -> op1 [style=dashed, color="#5a8fd6", arrowhead=normal];
+  op1 -> op2 [style=dashed, color="#5a8fd6", arrowhead=normal];
+  op2 -> op3 [style=dashed, color="#5a8fd6", arrowhead=normal];
+  { rank=same; op0; op1; op2; op3; }
+  { rank=same; leaf0; leaf1; leaf2; leaf3; }
+}

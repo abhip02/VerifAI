@@ -19,8 +19,10 @@ CompositionStep = Union[str, Dict[str, float]]
 def relabel_traces(csv_path, spec: automaton_specification) -> float:
     """Relabel a per-primitive trace CSV with the given DFA spec's verdicts."""
     df = pd.read_csv(csv_path).sort_values("step")
-    labels = {tid: spec.evaluate(grp.to_dict("records")) > 0
-              for tid, grp in df.groupby("trace_id")}
+    labels = {
+        tid: spec.evaluate(grp.to_dict("records")) > 0
+        for tid, grp in df.groupby("trace_id")
+    }
     df["label"] = df["trace_id"].map(labels)
     df.to_csv(csv_path, index=False)
     return df.groupby("trace_id")["label"].last().astype(float).mean()
@@ -47,11 +49,15 @@ class ScenarioBase:
         for name, path in logbase.items():
             path_obj = Path(path)
             if not path_obj.exists():
-                raise FileNotFoundError(f"CSV file for scenario '{name}' not found: {path}")
+                raise FileNotFoundError(
+                    f"CSV file for scenario '{name}' not found: {path}"
+                )
             df = pd.read_csv(path)
             missing = self.REQUIRED_COLUMNS - set(df.columns)
             if missing:
-                raise ValueError(f"CSV for scenario '{name}' missing columns: {missing}")
+                raise ValueError(
+                    f"CSV for scenario '{name}' missing columns: {missing}"
+                )
             df["trace_id"] = df["trace_id"].astype(str)
             self.data[name] = df
 
@@ -63,7 +69,11 @@ class ScenarioBase:
             last_steps = df.sort_values("step").groupby("trace_id").tail(1)
             labels = last_steps["label"].astype(float).to_numpy()
             rho = labels.mean() if len(labels) > 0 else 0.0
-            epsilon = np.sqrt(np.log(2 / self.delta) / (2 * len(labels))) if len(labels) > 0 else 0.0
+            epsilon = (
+                np.sqrt(np.log(2 / self.delta) / (2 * len(labels)))
+                if len(labels) > 0
+                else 0.0
+            )
             self.success_stats[name] = ScenarioStats(rho=rho, uncertainty=epsilon)
 
     def get_success_prob(self, scenario: str) -> float:
@@ -89,72 +99,27 @@ class CompositionalAnalysisEngine:
         std[std == 0] = 1.0
         return (features - mean) / std
 
-    def check(
+    def check_with_dfa(
         self,
-        scenario: List[str],
+        scenario: List[CompositionStep],
+        spec: automaton_specification,
         features: Optional[List[str]] = None,
         center_feat_idx: Optional[List[int]] = None,
-        bw_method: Union[str, int] = 10,
+        bw_method: Union[str, float] = 10,
     ) -> Tuple[float, float]:
         if len(scenario) == 0:
-            raise ValueError("Scenario list must contain at least one scenario.")
+            raise ValueError("Scenario list must contain at least one step.")
 
-        n = len(scenario)
-        if n == 1:
-            result = self.scenario_base.success_stats[scenario]
-            return result.rho, result.uncertainty
+        if any(isinstance(s, dict) and "__shuffle__" in s for s in scenario):
+            return self._check_with_dfa_shuffle(
+                scenario, spec, features, center_feat_idx, bw_method
+            )
 
-        first_scenario_result = self.scenario_base.success_stats[scenario[0]]
+        steps = [s if isinstance(s, dict) else {s: 1.0} for s in scenario]
 
-        rho = first_scenario_result.rho
-        eps_rho_ratios = [first_scenario_result.uncertainty/rho]
-
-        delta = self.scenario_base.delta
-        per_step_delta = delta / n
-
-        for i in range(len(scenario) - 1):
-            s_name, t_name = scenario[i], scenario[i+1]
-            df_s, df_t = self.scenario_base.data[s_name], self.scenario_base.data[t_name]
-
-            s_last = df_s.sort_values("step").groupby("trace_id").tail(1)
-            s_last = s_last[s_last["label"] == True]
-            t_first = df_t.sort_values("step").groupby("trace_id").head(1)
-            t_last = df_t.sort_values("step").groupby("trace_id").tail(1)
-
-            if features:
-                s_last_features = s_last[features].to_numpy()
-                t_first_features = t_first[features].to_numpy()
-                if s_last_features.shape[0] < 2 or t_first_features.shape[0] < 2:
-                    return 0.0, 0.0
-                if center_feat_idx:
-                    for j in center_feat_idx:
-                        s_last_features[:, j] = s_last_features[:, j] - np.mean(s_last_features[:, j])
-                        t_first_features[:, j] = t_first_features[:, j] - np.mean(t_first_features[:, j])
-            else:
-                raise ValueError("Feature list must be provided for KDE.")
-
-            s_last_features, t_first_features = s_last_features.T, t_first_features.T
-
-            kde_s_last = gaussian_kde(s_last_features, bw_method=bw_method)
-            kde_t_first = gaussian_kde(t_first_features, bw_method=bw_method)
-
-            p_vals = kde_s_last(t_first_features)
-            q_vals = kde_t_first(t_first_features)
-
-            weights = np.nan_to_num(p_vals / q_vals, nan=0.0, posinf=0.0, neginf=0.0)
-
-            labels_t_last = t_last["label"].astype(float).to_numpy()
-
-            rho_step = np.sum(weights * labels_t_last) / np.sum(weights)
-            rho *= rho_step
-
-            N_eff = np.sum(weights)**2 / np.sum(weights**2)
-            epsilon_i = np.sqrt(np.log(2 / per_step_delta) / (2 * N_eff))
-            eps_rho_ratios.append(epsilon_i / rho_step)
-
-        uncertainty = rho * np.sqrt(np.sum([eps_rho_ratios**2 for eps_rho_ratios in eps_rho_ratios]))
-
-        return rho, uncertainty
+        is_cosafety = not spec._dfa._label(spec._dfa.start)
+        if is_cosafety:
+            spec = ~spec
 
     def check_with_dfa(
         self,
@@ -265,7 +230,7 @@ class CompositionalAnalysisEngine:
                     branches = s["__shuffle__"]
                     result = []
                     for perm in _perms(branches):
-                        expanded = steps[:i] + list(perm) + steps[i + 1:]
+                        expanded = steps[:i] + list(perm) + steps[i + 1 :]
                         result.extend(expand(expanded))
                     return result
             return [steps]
@@ -275,7 +240,9 @@ class CompositionalAnalysisEngine:
         total_rho = 0.0
         variance_sum = 0.0
         for s in all_scenarios:
-            rho, eps = self.check_with_dfa(s, spec, features, center_feat_idx, bw_method)
+            rho, eps = self.check_with_dfa(
+                s, spec, features, center_feat_idx, bw_method
+            )
             total_rho += weight * rho
             variance_sum += (weight * eps) ** 2
         return total_rho, float(np.sqrt(variance_sum))
@@ -297,16 +264,19 @@ class CompositionalAnalysisEngine:
         variance_sum = 0.0
         for path_prob, composition in paths:
             path_rho, path_eps = self.check_with_dfa(
-                composition, spec,
-                features=features, center_feat_idx=center_feat_idx,
+                composition,
+                spec,
+                features=features,
+                center_feat_idx=center_feat_idx,
                 bw_method=bw_method,
             )
             rho += path_prob * path_rho
             variance_sum += (path_prob * path_eps) ** 2
         return rho, np.sqrt(variance_sum)
 
-    def _evaluate_step(
+    def forward(
         self,
+        prev_step: Dict[str, float] | None,
         step: Dict[str, float],
         spec: automaton_specification,
         q_init_dist: Dict[object, float],
@@ -430,7 +400,7 @@ class CompositionalAnalysisEngine:
 
     def _get_prev_step_accepting_features_by_q(
         self,
-        prev_step: Dict[str, float],
+        step: Dict[str, float],
         spec: automaton_specification,
         q_init,
         features: List[str],
@@ -529,13 +499,7 @@ class CompositionalAnalysisEngine:
             df = self.scenario_base.data[branch_name]
             _, branch_q_final = self._dfa_labels(df, spec, q_init_dist)
 
-            for q, w in branch_q_final.items():
-                mixed_dist[q] = mixed_dist.get(q, 0.0) + branch_weight * w
-
-        total = sum(mixed_dist.values())
-        if total > 0:
-            return {q: w / total for q, w in mixed_dist.items()}
-        return {spec._dfa.start: 1.0}
+        return states, weights
 
     @staticmethod
     def _dfa_labels(
@@ -580,7 +544,7 @@ class CompositionalAnalysisEngine:
         q_init_dist: Dict[object, float],
     ) -> Tuple[np.ndarray, Dict[object, float]]:
         grouped = {
-            str(tid): group.sort_values("step").to_dict("records")
+            tid: group.sort_values("step").to_dict("records")
             for tid, group in df.groupby("trace_id")
         }
         trace_ids = list(grouped.keys())
@@ -904,54 +868,6 @@ class CompositionalAnalysisEngine:
                         if cex is None:
                             t_first_features[:, j] -= np.mean(t_first_features[:, j])
             else:
-                raise ValueError("Feature list must be provided for KDE.")
+                labels[tid] = q_final
 
-            if cex is None:
-                if t_first_features.shape[0] <= t_first_features.shape[1]:
-                    random_idx = np.random.randint(t_first_features.shape[0])
-                    t_trace_id = t_first.iloc[random_idx]["trace_id"]
-                    t_trace = t_traces.get_group(t_trace_id)
-
-                    diffs = s_last_features - t_first_features[random_idx].reshape(1, -1)
-                    s_idx = int(np.argmin(np.linalg.norm(diffs, axis=1)))
-                    s_trace = s_traces.get_group(s_last.iloc[s_idx]["trace_id"])
-                else:
-                    kde_s_last  = gaussian_kde(s_last_features.T, bw_method=bw_method)
-                    kde_t_first = gaussian_kde(t_first_features.T, bw_method=bw_method)
-
-                    s_idx = np.argmax(kde_t_first(s_last_features.T))
-                    t_idx = np.argmax(kde_s_last(t_first_features.T))
-
-                    s_trace = s_traces.get_group(s_last.iloc[s_idx]["trace_id"])
-                    t_trace = t_traces.get_group(t_first.iloc[t_idx]["trace_id"])
-
-                if align_feat_idx:
-                    for idx in align_feat_idx:
-                        offset = s_trace[features[idx]].iloc[-1] - t_trace[features[idx]].iloc[0]
-                        t_trace = t_trace.copy()
-                        t_trace.loc[:, features[idx]] = t_trace[features[idx]] + offset
-
-                cex = t_trace
-
-            else:
-                compare_idx = align_feat_idx if align_feat_idx else list(range(len(features)))
-                s_feat_mat = s_last_features[:, compare_idx]
-                cex_first  = cex[features].iloc[0].to_numpy()[compare_idx]
-
-                diffs = s_feat_mat - cex_first.reshape(1, -1)
-                s_idx = int(np.argmin(np.linalg.norm(diffs, axis=1)))
-                s_trace = s_traces.get_group(s_last.iloc[s_idx]["trace_id"])
-
-                if align_feat_idx:
-                    for idx in align_feat_idx:
-                        offset = s_trace[features[idx]].iloc[-1] - cex[features[idx]].iloc[0]
-                        cex = cex.copy()
-                        cex.loc[:, features[idx]] = cex[features[idx]] + offset
-
-            cex = pd.concat([s_trace, cex])
-
-        if cex is None:
-            return None
-
-        final_features = [feat for feat in features] + ["label"]
-        return cex[final_features].reset_index(drop=True)
+        return labels

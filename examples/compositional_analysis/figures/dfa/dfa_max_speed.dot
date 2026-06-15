@@ -1,0 +1,13 @@
+digraph max_speed {
+  rankdir=LR;
+  bgcolor="white";
+  node [fontname="Helvetica"];
+  edge [fontname="Helvetica"];
+  start [shape=plaintext, label="start", fontcolor="#777777"];
+  ok [label="ok", shape=circle, style="filled", fillcolor="#d8efe1", color="#1f7a4d", fontcolor="#1f7a4d", fontname="Helvetica", peripheries=2, width=1.0, fixedsize=true];
+  violated [label="violated", shape=circle, style="filled", fillcolor="#f7e1dc", color="#b13c2a", fontcolor="#b13c2a", fontname="Helvetica", peripheries=1, width=1.0, fixedsize=true];
+  start -> ok [label="", color="#555555", fontcolor="#555555", fontname="Helvetica", fontsize=11];
+  ok -> ok [label="low", color="#555555", fontcolor="#555555", fontname="Helvetica", fontsize=11];
+  ok -> violated [label="high", color="#555555", fontcolor="#555555", fontname="Helvetica", fontsize=11];
+  violated -> violated [label="any (absorbing)", color="#555555", fontcolor="#555555", fontname="Helvetica", fontsize=11];
+}
