@@ -55,7 +55,57 @@ def plot_eps_vs_budget(records, out_path):
     plt.close(fig)
 
 
-def plot_rho_vs_budget(records, out_path):
+# Paper styling for the convergence plot: fixed colors so the legend's
+# blue/ours--orange/baseline pairing never depends on record order.
+_METHOD_STYLE = {
+    METHOD_COMP: ("tab:blue", "Compositional SMC (ours)"),
+    METHOD_MONO: ("tab:orange", "Monolithic SMC (baseline)"),
+}
+_LABEL_FONTSIZE = 15
+_TICK_FONTSIZE = 13
+_LEGEND_FONTSIZE = 12.5
+
+_SPEC_TITLE = {
+    "two_stops": "2-Stop",
+    "tollgate": "Tollgate",
+    "vshape": "V-Shaped",
+    "sustained_steer": "Sustained",
+}
+_COMBO_TITLE = {
+    "SX": "S→X",
+    "SXS": "S→X→S",
+    "SOC": "S→O→C",
+    "CSXS": "C→S→X→S",
+    "CXSXC": "C→X→S→X→C",
+    "choose": "S→choose(C,X,O)",
+    "shuffle": "S→shuffle(C,X,O)",
+}
+
+
+def cell_title(cell_name: str) -> str:
+    """'metadrive__tollgate__SX' -> 'Tollgate S→X'."""
+    parts = cell_name.split("__")
+    if len(parts) == 3:
+        _, spec, combo = parts
+        return f"{_SPEC_TITLE.get(spec, spec)} {_COMBO_TITLE.get(combo, combo)}"
+    return cell_name
+
+
+# Cells whose curves/bands crowd the default lower-right corner.
+_LEGEND_LOC_OVERRIDES = {
+    "scenic__vshape__shuffle": "upper left",
+    "scenic__vshape__choose": "upper right",
+    "scenic__sustained_steer__choose": "upper right",
+    "scenic__sustained_steer__shuffle": "upper right",
+}
+
+
+def legend_loc_for(cell_name: str) -> str:
+    return _LEGEND_LOC_OVERRIDES.get(cell_name, "lower right")
+
+
+def plot_rho_vs_budget(records, out_path, title: str | None = None,
+                       legend_loc: str = "lower right"):
     by = defaultdict(list)
     for r in records:
         if r.get("rho") is None or r.get("eps") is None:
@@ -67,19 +117,25 @@ def plot_rho_vs_budget(records, out_path):
         print("[plot rho] no points; skipping")
         return
     fig, ax = plt.subplots(figsize=(7, 4.5))
-    for m, pts in by.items():
+    ordered = [m for m in (METHOD_COMP, METHOD_MONO) if m in by]
+    ordered += sorted(m for m in by if m not in _METHOD_STYLE)
+    for m in ordered:
+        pts = by[m]
+        color, label = _METHOD_STYLE.get(m, (None, m))
         xs = [p[0] for p in pts]
         rho = np.array([p[1] for p in pts])
         eps = np.array([p[2] for p in pts])
-        ax.plot(xs, rho, marker=".", linewidth=1.2, label=m)
-        ax.fill_between(xs, rho - eps, rho + eps, alpha=0.2)
+        ax.plot(xs, rho, marker=".", linewidth=1.2, color=color, label=label)
+        ax.fill_between(xs, rho - eps, rho + eps, alpha=0.2, color=color)
     ax.set_xscale("log")
-    ax.set_xlabel("time budget (s)")
-    ax.set_ylabel("rho ± eps")
+    ax.set_xlabel("Time budget (s)", fontsize=_LABEL_FONTSIZE)
+    ax.set_ylabel("Satisfaction Probability", fontsize=_LABEL_FONTSIZE)
     ax.set_ylim(0.0, 1.0)
-    ax.set_title("Estimate convergence")
+    ax.tick_params(axis="both", labelsize=_TICK_FONTSIZE)
+    if title:
+        ax.set_title(title, fontsize=_LABEL_FONTSIZE)
     ax.grid(True, alpha=0.3)
-    ax.legend()
+    ax.legend(loc=legend_loc, fontsize=_LEGEND_FONTSIZE)
     fig.tight_layout()
     fig.savefig(out_path, dpi=140)
     plt.close(fig)

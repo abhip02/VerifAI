@@ -17,7 +17,9 @@
    moment that cell completes — instead of one push at the end.
 
 Everything else (grid, specs, engines, ground-truth construction,
-ShuffleMain cleaning, plots) is identical to main_v3.
+ShuffleMain cleaning, plots) is the trace-replay sweep originally split
+across main_v3; that module was folded into this file (its shared grid
+definitions and helpers now live in the section just below the imports).
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ import csv
 import os
 import shutil
 import sys
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Callable
@@ -36,41 +39,270 @@ from verifai.compositional_analysis import (
     relabel_traces,
 )
 from verifai.generate_graph_traces import generate_graph_scenarios
-
-from examples.compositional_analysis.scenic_scenarios.specs import add_dh_column
-
-from .main_v3 import (
-    COMP_DIR,
-    EXPERIMENTS,
-    Cell,
-    MD_COMBOS,
-    MD_PRIMITIVES,
-    SCENIC_FILE,
-    SCENIC_MAX_STEPS_MONO_MAIN,
-    SCENIC_MAX_STEPS_MONO_SHUF,
-    SCENIC_MAX_STEPS_PRIMITIVE,
-    SCENIC_MAX_STEPS_SUB2,
-    SCENIC_MONO,
-    SCENIC_PREWARM_TRIM,
-    SCENIC_PRIM_DIRS_DEFAULT,
-    SCENIC_PRIM_DIRS_STEER,
-    SCENIC_PRIMITIVES,
-    SCENIC_SUB2_NAMES,
-    SCENIC_WARMUP_STEPS,
-    SHUFFLE_BOUNDARY_TRIM,
-    SHUFFLEMAIN_CLEAN_DIR,
-    SHUFFLEMAIN_DIR,
-    _RESULT_FIELDS,
-    _count_distinct_traces,
-    _error_row,
-    _mono_scenario_name,
-    _normal_ci_half,
-    _report_rho,
-    _resolve_cap,
-    _scale_caps,
-    _scenic_paths,
-    _trim_prewarm,
+from verifai.scenic_composition_analysis import (
+    analyze_scenic_composition,
+    build_partner_format,
 )
+from verifai.scenic_parser import parse_scenic_spec
+
+from examples.compositional_analysis.scenic_scenarios.specs import (
+    add_dh_column,
+    make_steer_spec_metadrive,
+    make_steer_spec_scenic,
+    make_tollgate_spec_md,
+    make_tollgate_spec_scenic,
+    make_two_stops_spec_md,
+    make_two_stops_spec_scenic,
+    make_vshape_safety_spec_md,
+    make_vshape_safety_spec_scenic,
+)
+
+# ---------------------------------------------------------------------------
+# Shared grid definitions and helpers (formerly budget_sweep/main_v3.py).
+# main_v3 was deleted; its scenario catalogues, the Cell dataclass + the
+# 28-cell EXPERIMENTS grid, and the small reused helpers live here now. The
+# v4 trace-store paths, engine runners, convergence walk, and main() defined
+# further down supersede their v3 namesakes (which were not lifted).
+# ---------------------------------------------------------------------------
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+COMP_DIR = REPO_ROOT / "examples/compositional_analysis"
+
+SCENIC_FILE = (
+    COMP_DIR
+    / "dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_scenarios.scenic"
+)
+
+MD_PRIMITIVES = ("S", "X", "C", "O")
+MD_COMBOS: dict[str, list[str]] = {
+    "SX": ["S", "X"],
+    "SXS": ["S", "X", "S"],
+    "SOC": ["S", "O", "C"],
+    "CSXS": ["C", "S", "X", "S"],
+    "CXSXC": ["C", "X", "S", "X", "C"],
+}
+
+SCENIC_PRIMITIVES = (
+    "Subscenario1",
+    "Subscenario2L",
+    "Subscenario2R",
+    "Subscenario2S",
+)
+# Per-spec primitive trace sources: logical scenario name → trace dir under
+# the trace store. The composition paths always reference the logical names;
+# sustained_steer swaps in the `_far` generation, whose spawn-far geometry
+# the steering spec's dh thresholds assume. The other three specs use the
+# regular set.
+SCENIC_PRIM_DIRS_DEFAULT = {p: p for p in SCENIC_PRIMITIVES}
+SCENIC_PRIM_DIRS_STEER = {
+    "Subscenario1": "Subscenario1",
+    "Subscenario2L": "Subscenario2L_far",
+    "Subscenario2R": "Subscenario2R_far",
+    "Subscenario2S": "Subscenario2S_far",
+}
+SCENIC_MONO = {
+    "choose": "MonolithicMain",
+    "shuffle": "MonolithicShuffle",
+}
+# Shuffle ground truth comes from the natively-executed ShuffleMain scenario
+# (real per-segment respawns); _ensure_clean_shufflemain drops each respawn
+# spike + the following SHUFFLE_BOUNDARY_TRIM rows and re-derives dh zeroed
+# across the gaps.
+SHUFFLEMAIN_DIR = "ShuffleMain"
+SHUFFLEMAIN_CLEAN_DIR = "ShuffleMain_clean"
+SHUFFLE_BOUNDARY_TRIM = 10
+SCENIC_ENTRYPOINT = {
+    "choose": "Main",
+    "shuffle": "ShuffleMain",
+}
+
+SCENIC_PREWARM_TRIM = 25  # rows trimmed from Sub2* (matches test_4way_paper_specs.py)
+SCENIC_WARMUP_STEPS = 25  # step-offset after trim
+SCENIC_SUB2_NAMES = {"Subscenario2L", "Subscenario2R", "Subscenario2S"}
+SCENIC_MAX_STEPS_PRIMITIVE = 85
+SCENIC_MAX_STEPS_SUB2 = SCENIC_MAX_STEPS_PRIMITIVE + SCENIC_PREWARM_TRIM  # 110
+SCENIC_MAX_STEPS_MONO_MAIN = SCENIC_MAX_STEPS_PRIMITIVE * 2  # choose
+SCENIC_MAX_STEPS_MONO_SHUF = SCENIC_MAX_STEPS_PRIMITIVE * 4  # shuffle
+
+_CI_Z = 1.96  # 95% normal-approx CI half-width for the monolithic side
+# Specs whose DFAs are co-safety automata (built as the absorbing-reject
+# complement of a co-safety property). For these the engine returns the
+# satisfaction prob of the complement and the paper reports 1 − ρ.
+_COSAFETY_SPECS = {"vshape", "sustained_steer"}
+
+
+def _count_distinct_traces(csv_path: Path) -> int:
+    """Cheap distinct-`trace_id` count: read col 0, dedupe, return len."""
+    import csv as _csv
+
+    seen: set[str] = set()
+    with csv_path.open() as f:
+        r = _csv.reader(f)
+        header = next(r, None)
+        if not header:
+            return 0
+        for row in r:
+            if row:
+                seen.add(row[0])
+    return len(seen)
+
+
+def _resolve_cap(name: str, spec: object) -> int | None:
+    """Resolve a per-side cap spec down to a single int (or None).
+
+    ``spec`` can be ``None`` (no cap), an ``int`` (same cap for every
+    scenario), or a ``dict[str, int]`` keyed by scenario name (optionally
+    with a ``"_default"`` fallback key).
+    """
+    if spec is None:
+        return None
+    if isinstance(spec, int):
+        return spec if spec > 0 else None
+    if isinstance(spec, dict):
+        if name in spec:
+            v = spec[name]
+            return int(v) if v else None
+        if "_default" in spec:
+            v = spec["_default"]
+            return int(v) if v else None
+        return None
+    raise TypeError(f"Unsupported cap spec type: {type(spec).__name__}")
+
+
+def _trim_prewarm(csv_path: Path, n_trim: int, step_offset: int) -> None:
+    """Drop the first n_trim rows per trace and rebase `step` to step_offset.
+
+    Lifted from dfa_tests/e2e_4way_example/test_4way_paper_specs.py so the
+    Scenic Sub2 primitive logs land in the same step coordinate the specs
+    expect (`step >= WARMUP_STEPS = 25`).
+    """
+    import pandas as pd
+
+    df = pd.read_csv(csv_path).sort_values(["trace_id", "step"])
+    trimmed = []
+    for _, grp in df.groupby("trace_id"):
+        kept = grp.iloc[n_trim:].copy()
+        kept["step"] = range(step_offset, step_offset + len(kept))
+        trimmed.append(kept)
+    pd.concat(trimmed, ignore_index=True).to_csv(csv_path, index=False)
+
+
+@dataclass(frozen=True)
+class Cell:
+    name: str
+    spec_name: str
+    spec_factory: Callable[[], object]
+    backend: str  # "metadrive" | "scenic"
+    combo: str  # MD: "SX"... ; Scenic: "choose"|"shuffle"
+
+
+# App C grid: 4 specs × 7 scenarios = 28 cells. Per §C.3 the DFAs are
+# identical across backends; only thresholds/counters/warmup differ, so each
+# spec ships as a (MD-factory, Scenic-factory) pair.
+_APP_C_SPECS: list[tuple[str, Callable, Callable]] = [
+    ("two_stops", make_two_stops_spec_md, make_two_stops_spec_scenic),
+    ("tollgate", make_tollgate_spec_md, make_tollgate_spec_scenic),
+    ("vshape", make_vshape_safety_spec_md, make_vshape_safety_spec_scenic),
+    ("sustained_steer", make_steer_spec_metadrive, make_steer_spec_scenic),
+]
+
+
+def _build_experiments() -> list[Cell]:
+    cells: list[Cell] = []
+    for spec_name, md_factory, scenic_factory in _APP_C_SPECS:
+        for combo in MD_COMBOS:
+            cells.append(
+                Cell(
+                    name=f"metadrive__{spec_name}__{combo}",
+                    spec_name=spec_name,
+                    spec_factory=md_factory,
+                    backend="metadrive",
+                    combo=combo,
+                )
+            )
+        for combo in ("choose", "shuffle"):
+            cells.append(
+                Cell(
+                    name=f"scenic__{spec_name}__{combo}",
+                    spec_name=spec_name,
+                    spec_factory=scenic_factory,
+                    backend="scenic",
+                    combo=combo,
+                )
+            )
+    return cells
+
+
+EXPERIMENTS: list[Cell] = _build_experiments()
+
+
+_scenic_paths_cache: dict[str, list] | None = None
+
+
+def _scenic_paths(combo: str):
+    global _scenic_paths_cache
+    if _scenic_paths_cache is None:
+        graph = analyze_scenic_composition(str(SCENIC_FILE))
+        partner = build_partner_format(graph)
+        _scenic_paths_cache = parse_scenic_spec(partner)
+    return _scenic_paths_cache[SCENIC_ENTRYPOINT[combo]]
+
+
+def _report_rho(spec_name: str, rho_safe: float) -> float:
+    """Convert engine output (ρ on the absorbing-reject automaton) to the
+    paper-table value: identity for safety, complement for co-safety.
+    """
+    if spec_name in _COSAFETY_SPECS:
+        return 1.0 - float(rho_safe)
+    return float(rho_safe)
+
+
+def _scale_caps(caps: dict[str, int], factor: float) -> dict[str, int]:
+    """Scale every value in a cap dict by ``factor`` (rounded, ≥1)."""
+    return {k: max(1, int(round(v * factor))) for k, v in caps.items()}
+
+
+def _normal_ci_half(p: float, n: int) -> float:
+    if not n or n <= 0:
+        return float("nan")
+    p = max(0.0, min(1.0, p))
+    return _CI_Z * (p * (1.0 - p) / n) ** 0.5
+
+
+def _mono_scenario_name(cell: Cell) -> str:
+    """Resolve the lookup key used inside the mono-cap dict for a given cell."""
+    if cell.backend == "metadrive":
+        return cell.combo
+    return SCENIC_MONO[cell.combo]
+
+
+_RESULT_FIELDS = [
+    "cell",
+    "backend",
+    "spec",
+    "combo",
+    "rho_comp",
+    "rho_mono",
+    "abs_diff",
+    "eps_comp",
+    "elapsed_s",
+    "error",
+]
+
+
+def _error_row(cell: Cell, exc: BaseException) -> dict:
+    return {
+        "cell": cell.name,
+        "backend": cell.backend,
+        "spec": cell.spec_name,
+        "combo": cell.combo,
+        "rho_comp": None,
+        "rho_mono": None,
+        "abs_diff": None,
+        "eps_comp": None,
+        "elapsed_s": None,
+        "error": f"{type(exc).__name__}: {exc}",
+    }
 
 # ---------------------------------------------------------------------------
 # v4 paths + budget constants
@@ -118,7 +350,11 @@ _N_TRACES_CEILING = 100_000
 
 
 def _filtered_csv(src: Path, max_traces: int | None) -> str:
-    """v3's _filtered_csv against the v4 cache root."""
+    """v3's _filtered_csv against the v4 cache root.
+
+    Written via temp-file + os.replace so concurrent convergence workers
+    sharing the cache never read a partially written file.
+    """
     if not max_traces:
         return str(src)
     import pandas as pd
@@ -128,7 +364,9 @@ def _filtered_csv(src: Path, max_traces: int | None) -> str:
     if not dst.is_file() or dst.stat().st_mtime < src.stat().st_mtime:
         df = pd.read_csv(src, on_bad_lines="skip", low_memory=False)
         keep = df["trace_id"].drop_duplicates().head(max_traces)
-        df[df["trace_id"].isin(keep)].to_csv(dst, index=False)
+        tmp = dst.with_name(f"{dst.name}.tmp.{os.getpid()}")
+        df[df["trace_id"].isin(keep)].to_csv(tmp, index=False)
+        os.replace(tmp, dst)
     return str(dst)
 
 
@@ -463,6 +701,23 @@ _RUNNERS: dict[str, Callable] = {
 }
 
 
+def _convergence_worker(cell, budgets_s, comp_caps, mono_caps,
+                        gen_time_budget: float):
+    """Module-level worker so cells can run in parallel processes.
+
+    Each worker gets a private filter-cache subdirectory: the engine's
+    relabel_traces rewrites its input CSV in place, so capped copies must
+    never be shared between concurrently running cells.
+    """
+    global _FILTER_CACHE_V4
+    _set_run_paths(gen_time_budget)
+    _FILTER_CACHE_V4 = _FILTER_CACHE_V4 / f"worker_{os.getpid()}"
+    recs = run_cell_convergence(
+        cell, budgets_s, comp_caps, mono_caps, calib_budget_s=gen_time_budget
+    )
+    return cell.name, recs
+
+
 def run_cell_convergence(
     cell: Cell,
     budgets_s,
@@ -482,7 +737,18 @@ def run_cell_convergence(
         mc = _scale_caps(mono_caps_calib, factor)
         n_mono = _resolve_cap(mono_name, mc)
 
-        rho_safe_c, eps_c, rho_safe_m = runner(spec, cell.spec_name, cell.combo, cc, mc)
+        try:
+            rho_safe_c, eps_c, rho_safe_m = runner(
+                spec, cell.spec_name, cell.combo, cc, mc
+            )
+        except ZeroDivisionError:
+            # Engine edge case (forward(), n_eff line): IS weights at a
+            # handoff underflow when squared (sum(w**2) == 0 while
+            # sum(w) > 0), so n_eff divides 0/0. The affected branch
+            # carries negligible probability mass; skip the point.
+            print(f"[{cell.name}] t={t:.0f}s: IS-weight underflow in "
+                  f"engine n_eff; skipping budget point", file=sys.stderr)
+            continue
         rho_c = _report_rho(cell.spec_name, rho_safe_c)
         rho_m = _report_rho(cell.spec_name, rho_safe_m)
         eps_m = _normal_ci_half(rho_m, n_mono) if n_mono else float("nan")
@@ -581,6 +847,8 @@ def main(
     budgets_s: tuple[float, ...] | None = None,
     gen_time_budget: float = _CALIB_BUDGET_S,
     gen_workers: int = 5,
+    reuse_traces: bool = False,
+    workers: int = 1,
 ) -> None:
     # Default sweep grid: 30 s steps up to the generation budget (which is
     # also the calibration anchor), final point pinned to the full budget.
@@ -608,8 +876,16 @@ def main(
 
     wandb = _wandb_start(len(cells), budgets_s, gen_time_budget)
 
-    print(f"[main_v4] generating fresh traces ({gen_time_budget:.0f}s per scenario)")
-    generate_fresh_traces(cells, gen_time_budget, gen_workers)
+    if reuse_traces:
+        if not (MD_BASE_V4.is_dir() or SCENIC_BASE_V4.is_dir()):
+            raise SystemExit(
+                f"--reuse-traces: no existing trace store under "
+                f"{_V4_SAVE_ROOT / f'b{int(gen_time_budget)}s'}"
+            )
+        print(f"[main] reusing existing b{int(gen_time_budget)}s trace store")
+    else:
+        print(f"[main] generating fresh traces ({gen_time_budget:.0f}s per scenario)")
+        generate_fresh_traces(cells, gen_time_budget, gen_workers)
 
     comp_caps, mono_caps = caps_from_fresh_csvs(cells)
     print(f"[calibration] fresh {gen_time_budget / 60:.0f}-min trace counts:")
@@ -621,23 +897,13 @@ def main(
             | {f"gen/mono/{k}": v for k, v in mono_caps.items()}
         )
 
-    from .plots import plot_rho_vs_budget
+    from .plots import cell_title, legend_loc_for, plot_rho_vs_budget
 
     rows: list[dict] = []
-    print(f"[main_v4] running {len(cells)} cells → {out_csv}")
+    print(f"[main] running {len(cells)} cells "
+          f"(workers={workers}) → {out_csv}")
 
-    for cell in cells:
-        print(f"\n{'=' * 70}\nCELL: {cell.name}\n{'=' * 70}")
-        try:
-            recs = run_cell_convergence(
-                cell, budgets_s, comp_caps, mono_caps,
-                calib_budget_s=gen_time_budget,
-            )
-        except Exception as exc:
-            print(f"[{cell.name}] ERROR: {exc}", file=sys.stderr)
-            rows.append(_error_row(cell, exc))
-            continue
-
+    def _finish_cell(cell, recs) -> None:
         cell_csv = per_cell_dir / f"{cell.name}.csv"
         with cell_csv.open("w", newline="") as f:
             w = csv.DictWriter(
@@ -647,7 +913,8 @@ def main(
             w.writerows(recs)
         png = per_cell_dir / f"{cell.name}.png"
         try:
-            plot_rho_vs_budget(recs, png)
+            plot_rho_vs_budget(recs, png, title=cell_title(cell.name),
+                               legend_loc=legend_loc_for(cell.name))
         except Exception as exc:
             print(f"[{cell.name}] plot failed: {exc}", file=sys.stderr)
 
@@ -676,7 +943,8 @@ def main(
         print(
             f"[{cell.name}] @t={comp_pt['budget']:.0f}s: "
             f"rho_comp={comp_pt['rho']:.3f}±{comp_pt['eps']:.3f}  "
-            f"rho_mono={mono_pt['rho']:.3f}±{mono_pt['eps']:.3f}"
+            f"rho_mono={mono_pt['rho']:.3f}±{mono_pt['eps']:.3f} "
+            f"({len(rows)}/{len(cells)} done)"
         )
 
         if wandb:
@@ -685,12 +953,51 @@ def main(
             except Exception as exc:
                 print(f"[{cell.name}] wandb stream failed: {exc}", file=sys.stderr)
 
+    if workers <= 1:
+        for cell in cells:
+            print(f"\n{'=' * 70}\nCELL: {cell.name}\n{'=' * 70}")
+            try:
+                recs = run_cell_convergence(
+                    cell, budgets_s, comp_caps, mono_caps,
+                    calib_budget_s=gen_time_budget,
+                )
+            except Exception as exc:
+                print(f"[{cell.name}] ERROR: {exc}", file=sys.stderr)
+                rows.append(_error_row(cell, exc))
+                continue
+            _finish_cell(cell, recs)
+    else:
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+
+        n_workers = max(1, min(workers, len(cells)))
+        with ProcessPoolExecutor(max_workers=n_workers) as pool:
+            futures = {
+                pool.submit(
+                    _convergence_worker, cell, budgets_s,
+                    comp_caps, mono_caps, gen_time_budget,
+                ): cell
+                for cell in cells
+            }
+            for fut in as_completed(futures):
+                cell = futures[fut]
+                try:
+                    _, recs = fut.result()
+                except Exception as exc:
+                    print(f"[{cell.name}] ERROR: {exc}", file=sys.stderr)
+                    rows.append(_error_row(cell, exc))
+                    continue
+                _finish_cell(cell, recs)
+
+        # Completion order varies; restore grid order in the summary.
+        by_name = {r["cell"]: r for r in rows}
+        rows = [by_name[c.name] for c in cells if c.name in by_name]
+
     with out_csv.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=_RESULT_FIELDS)
         w.writeheader()
         w.writerows(rows)
-    print(f"\n[main_v4] wrote {len(rows)} summary rows → {out_csv}")
-    print(f"[main_v4] convergence CSVs + plots → {per_cell_dir}")
+    print(f"\n[main] wrote {len(rows)} summary rows → {out_csv}")
+    print(f"[main] convergence CSVs + plots → {per_cell_dir}")
 
     # Final image bundle: one folder with every cell plot, named by the
     # budget marker (plots_15min/, plots_30min/, ...) — the drop-in source
@@ -702,7 +1009,7 @@ def main(
     pngs = sorted(per_cell_dir.glob("*.png"))
     for png in pngs:
         shutil.copy2(png, plots_dir / png.name)
-    print(f"[main_v4] {len(pngs)} plots bundled → {plots_dir}")
+    print(f"[main] {len(pngs)} plots bundled → {plots_dir}")
 
     if wandb:
         table = wandb.Table(columns=_RESULT_FIELDS)
@@ -773,6 +1080,19 @@ if __name__ == "__main__":
         metavar="N",
         help="Parallel monolith generations (default: %(default)s)",
     )
+    parser.add_argument(
+        "--reuse-traces",
+        action="store_true",
+        help="Skip generation and re-run the analysis on the existing "
+        "trace store for this budget (e.g. after an engine change)",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Parallel processes for the convergence cells (default: serial)",
+    )
     args = parser.parse_args()
 
     main(
@@ -780,4 +1100,6 @@ if __name__ == "__main__":
         list_only=args.list_only,
         gen_time_budget=args.time_budget * 60.0,
         gen_workers=args.gen_workers,
+        reuse_traces=args.reuse_traces,
+        workers=args.workers,
     )
