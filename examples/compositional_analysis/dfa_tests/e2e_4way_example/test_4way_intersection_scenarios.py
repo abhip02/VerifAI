@@ -4,17 +4,23 @@ Composition (`composed_scenarios.scenic`):
     Main = Subscenario1 ; do choose { Subscenario2L, Subscenario2R, Subscenario2S }
     => 3 distinct execution paths
 
-Each sub-scenario is a self-contained `scenario X():` block with its own
-setup that creates an ego using `EgoBehavior(trajectory=...)` —
-`FollowTrajectoryBehavior` over real lane-network maneuvers, not open-loop
-`take` actions. This is the rich-scenario composition path: the ego
-actually navigates the road graph rather than just steering blindly.
+Each sub-scenario is a self-contained `scenario X():` block whose setup creates
+an ego using `EgoBehavior(trajectory=...)` — `FollowTrajectoryBehavior` over
+real lane-network maneuvers, not open-loop `take` actions.  This is the rich-
+scenario composition path: the ego actually navigates the road graph.
 
-Trace generation goes through `generate_graph_scenarios` (the library
-companion to `generate_graph_traces` that handles self-contained leaf
-scenarios; see its docstring for the wrapper-builder incompatibility it
-sidesteps). Same DFA spec, relabel, and `check_with_dfa_scenic` pipeline
-as the behavior-based 4-way test.
+Three DFA specs are evaluated:
+
+  speed_safety        — absorbing-reject if speed > MAX_SPEED=5.5 post-warmup.
+  no_near_stop_twice  — absorbing-reject if speed drops below NEAR_STOP=1.5 m/s
+                        more than once (safety: at most one near-stop).
+  tollgate_zone       — once speed drops below GATE_SLOW=3.0 m/s (slow zone),
+                        absorbing-reject if speed later exceeds GATE_CAP=6.0 m/s
+                        (post-gate speed cap, like a tollgate speed limit).
+
+All three are absorbing-REJECT safety specs — `check_with_dfa` handles these
+correctly.  Absorbing-accept (liveness) specs are NOT used here because they
+collapse compositional rho to the first segment's rho (see memory note).
 """
 import sys
 from pathlib import Path
@@ -56,40 +62,23 @@ MAX_STEPS   = 85   # ticks per per-primitive trace BEFORE trim.
                    # Monolithic uses 2*MAX_STEPS = 170 ticks per trace.
 PREWARM_TRIM = 25  # rows trimmed from start of each Sub2 CSV
                    # (== max prewarm value in EgoBehaviorWithPrewarm)
-SUB2_MAX_STEPS = MAX_STEPS + PREWARM_TRIM  # = 110. Sub2 needs PREWARM_TRIM extra raw
-                   # ticks so that AFTER trimming the prewarm prefix, the remaining
-                   # CSV has MAX_STEPS = 85 rows — matching the per-segment
-                   # evaluation length monolithic seg-2 sees (85 ticks of
-                   # `MonolithicMain`'s second FollowTrajectoryBehavior call).
-                   # Without this bump, Sub2 post-trim has only 60 rows, and the
-                   # spec's warmup mask further drops it to 35 evaluated ticks vs
-                   # mono seg-2's 85 → Sub2 ρ overestimates "stays below MAX",
-                   # which the multiplicative engine then over-multiplies.
-SUB2_PRIMITIVES = {"Subscenario2L", "Subscenario2R", "Subscenario2S"}  # which primitives have prewarm
+SUB2_MAX_STEPS = MAX_STEPS + PREWARM_TRIM  # = 110
+SUB2_PRIMITIVES = {"Subscenario2L", "Subscenario2R", "Subscenario2S"}
 
-# DFA spec: SAFETY (absorbing-reject) — speed never exceeds MAX_SPEED post-warmup.
-# Why safety, not liveness? `check_with_dfa` multiplies per-segment rhos with
-# state conditioning on acceptance: rho = rho_step1 * rho_step2 where each
-# rho_step is "fraction accepting given the segment starts from the
-# previous-step's acceptance-conditioned q distribution". For absorbing-reject,
-# this correctly equals P(survive whole composition). For absorbing-accept
-# (liveness), it collapses: once Sub1 accepts, q_init for Sub2 = {accept: 1.0},
-# Sub2 trivially stays in accept, rho_step_2 = 1.0, so compositional rho =
-# Sub1's rho exactly. (That's the 0.31 we kept seeing.)
-# Safety semantics: traces with UBER_SPEED close to 8 will exceed 5.5 -> reject;
-# traces with UBER_SPEED close to 2 stay below -> accept. Graded rho across the
-# UBER_SPEED=Range(2,8) distribution.
+# Spec thresholds
 WARMUP_STEPS = 25
-MAX_SPEED    = 5.5
+MAX_SPEED    = 5.5   # speed_safety cap
+NEAR_STOP    = 1.5   # no_near_stop_twice threshold (m/s)
+GATE_SLOW    = 3.0   # tollgate_zone: entering the slow zone below this speed
+GATE_CAP     = 6.0   # tollgate_zone: must not exceed this after entering slow zone
 
 
 # ---------------------------------------------------------------------------
-# DFA spec
+# DFA specs (all absorbing-reject / safety)
 # ---------------------------------------------------------------------------
 
-def make_spec():
-    """Safety: speed stays at-or-below MAX_SPEED at every post-warmup step.
-    Once exceeded, DFA enters `bad` and stays there (absorbing-reject)."""
+def make_speed_safety_spec():
+    """Speed never exceeds MAX_SPEED post-warmup (absorbing-reject)."""
     def transition(state, sym):
         if state == "bad":
             return "bad"
@@ -97,7 +86,7 @@ def make_spec():
 
     def label_row(row):
         if row["step"] < WARMUP_STEPS:
-            return "low"  # masked during warmup
+            return "low"
         return "high" if row["speed"] > MAX_SPEED else "low"
 
     return automaton_specification(
@@ -105,6 +94,88 @@ def make_spec():
         inputs={"high", "low"},
         transition=transition,
         label=lambda s: s == "ok",
+        labeling_function=label_row,
+    )
+
+
+# Keep old name so external callers still work.
+make_spec = make_speed_safety_spec
+
+
+def make_no_near_stop_twice_spec():
+    """At most one near-stop (speed < NEAR_STOP) post-warmup.
+
+    DFA states
+    ----------
+    moving       : no near-stop seen yet
+    once_stopped : exactly one near-stop seen; still OK
+    twice_stopped: second near-stop seen → absorbing reject
+
+    This is the same DFA family as test_check_with_dfa_metadrive_two_stops.py,
+    adapted to the MetaDrive intersection scenario.  A near-stop can occur at
+    spawn (before the ego accelerates) or mid-trajectory during a sharp turn.
+    """
+    def transition(state, sym):
+        if state == "moving":
+            return "once_stopped" if sym == "near_stop" else "moving"
+        if state == "once_stopped":
+            return "twice_stopped" if sym == "near_stop" else "once_stopped"
+        return "twice_stopped"  # absorbing
+
+    def label_row(row):
+        if row["step"] < WARMUP_STEPS:
+            return "moving"
+        return "near_stop" if row["speed"] < NEAR_STOP else "moving"
+
+    return automaton_specification(
+        start="moving",
+        inputs={"moving", "near_stop"},
+        transition=transition,
+        label=lambda s: s != "twice_stopped",
+        labeling_function=label_row,
+    )
+
+
+def make_tollgate_zone_spec():
+    """Tollgate-zone safety: once the car enters the slow zone (speed < GATE_SLOW),
+    it must not re-accelerate beyond GATE_CAP.
+
+    DFA states
+    ----------
+    normal  : car has not yet entered the slow zone
+    gated   : car has passed through the slow zone; speed cap now active
+    bad     : speed exceeded GATE_CAP while in gated state → absorbing reject
+
+    Traces that never drop below GATE_SLOW stay in `normal` forever and always
+    pass (no gate encountered, no constraint active).  Only traces that do slow
+    down (e.g. at the intersection approach or during a turn) get the post-gate
+    cap applied.
+
+    Symbolically: "if you once went slow (≤ GATE_SLOW), you have passed the
+    tollgate and must respect the GATE_CAP speed limit afterward."
+    """
+    def transition(state, sym):
+        if state == "normal":
+            return "gated" if sym == "slow" else "normal"
+        if state == "gated":
+            return "bad" if sym == "fast" else "gated"
+        return "bad"  # absorbing
+
+    def label_row(row):
+        if row["step"] < WARMUP_STEPS:
+            return "normal"
+        spd = row["speed"]
+        if spd < GATE_SLOW:
+            return "slow"
+        if spd > GATE_CAP:
+            return "fast"
+        return "normal"
+
+    return automaton_specification(
+        start="normal",
+        inputs={"normal", "slow", "fast"},
+        transition=transition,
+        label=lambda s: s != "bad",
         labeling_function=label_row,
     )
 
@@ -129,8 +200,6 @@ def trim_prewarm(csv_path, n, step_offset=0):
 
 
 def _max_steps_for(name):
-    """Per-scenario raw simulation length. Sub2 needs the extra PREWARM_TRIM
-    ticks so post-trim CSV length == MAX_STEPS (matches mono seg-2 length)."""
     return SUB2_MAX_STEPS if name in SUB2_PRIMITIVES else MAX_STEPS
 
 
@@ -148,14 +217,8 @@ def main(reuse_traces=False):
     print(f"Primitives : {sorted(primitives)}")
     print(f"Composition: {paths}")
 
-    # 2. Per-scenario trace generation. In --reuse_traces mode, regenerate
-    #    only the per-primitive CSVs that are missing (so deleting just
-    #    Subscenario2L/R/S CSVs lets us regen those without re-running Sub1
-    #    or the long monolithic).
+    # 2. Per-scenario trace generation (shared across all specs).
     def _post_process(name, csv_path):
-        # Sub2 traces: trim prewarm prefix AND shift step values past the
-        # warmup mask so the spec doesn't re-mask already-warm rows. Sub1
-        # is a cold-start trace and gets the warmup mask normally.
         if name in SUB2_PRIMITIVES:
             trim_prewarm(csv_path, PREWARM_TRIM, step_offset=WARMUP_STEPS)
 
@@ -191,33 +254,7 @@ def main(reuse_traces=False):
     if missing:
         raise RuntimeError(f"missing primitives: {sorted(missing)}")
 
-    # 3. Apply DFA, compute per-primitive rho.
-    spec = make_spec()
-    print("\n=== Per-primitive rho ===")
-    for name in sorted(primitives):
-        rho = relabel_traces(logs[name], spec)
-        print(f"  {name:18s} rho = {rho:.4f}  ({logs[name]})")
-
-    # 4. Compositional analysis on the 2-step path.
-    engine = CompositionalAnalysisEngine(ScenarioBase(logs))
-    # Match boundary distributions on `speed` only — dropping (x, y) because
-    # Sub1 ends at varying (x, y) along its trajectory (UBER_SPEED-dependent)
-    # while Sub2 spawns at a near-fixed (x, y) 0-3m before the intersection.
-    # That geometric mismatch makes the 2D position KDE collapse to ~0 weight
-    # at the boundary even after prewarm, zeroing out segment-2's contribution
-    # and pinning compositional ρ to Sub1's per-primitive ρ. Speed is the only
-    # feature the DFA spec reads, so it's the one that matters for the boundary
-    # state distribution.
-    rho_comp, eps_comp = engine.check_with_dfa_scenic(
-        paths, spec,
-        features=["speed"], center_feat_idx=[],
-    )
-
-    # 5. Monolithic counterpart: simulate the full Subscenario1 -> turn chain
-    #    end-to-end via MonolithicMain (uses MonolithicEgoBehavior to chain
-    #    the two FollowTrajectoryBehaviors back-to-back). Each trace is
-    #    2*MAX_STEPS = 170 ticks of continuous driving. Generated by the
-    #    same library function (single-scenario invocation).
+    # 3. Monolithic ground-truth (generated once, reused across specs).
     MONO_NAME = "MonolithicMain"
     mono_csv_path = SAVE_DIR / MONO_NAME / "traces.csv"
     if reuse_traces and mono_csv_path.exists():
@@ -231,15 +268,37 @@ def main(reuse_traces=False):
             n=MONO_N, save_dir=SAVE_DIR, max_steps=MAX_STEPS * 2,
         )
         mono_csv = mono_logs[MONO_NAME]
-    rho_mono = relabel_traces(mono_csv, spec)
     n_mono = pd.read_csv(mono_csv)["trace_id"].nunique()
     eps_mono = hoeffding_eps(n_mono)
 
-    print(f"\n=== Compositional vs Monolithic (n_mono={n_mono}) ===")
-    print(f"  Compositional : rho = {rho_comp:.4f} +/- {eps_comp:.4f}")
-    print(f"  Monolithic    : rho = {rho_mono:.4f} +/- {eps_mono:.4f}")
-    print(f"  |diff|        : {abs(rho_comp - rho_mono):.4f}")
-    print(f"  paths         : {paths}")
+    # 4. Evaluate all specs.
+    specs = {
+        "speed_safety":       make_speed_safety_spec(),
+        "no_near_stop_twice": make_no_near_stop_twice_spec(),
+        "tollgate_zone":      make_tollgate_zone_spec(),
+    }
+
+    engine = CompositionalAnalysisEngine(ScenarioBase(logs))
+
+    for spec_name, spec in specs.items():
+        print(f"\n{'='*60}")
+        print(f"Spec: {spec_name}")
+        print(f"{'='*60}")
+
+        print("  Per-primitive rho:")
+        for name in sorted(primitives):
+            rho = relabel_traces(logs[name], spec)
+            print(f"    {name:18s} rho = {rho:.4f}")
+
+        rho_comp, eps_comp = engine.check_with_dfa_scenic(
+            paths, spec,
+            features=["speed"], center_feat_idx=[],
+        )
+        rho_mono = relabel_traces(mono_csv, spec)
+
+        print(f"  Compositional : rho = {rho_comp:.4f} +/- {eps_comp:.4f}")
+        print(f"  Monolithic    : rho = {rho_mono:.4f} +/- {eps_mono:.4f}")
+        print(f"  |diff|        : {abs(rho_comp - rho_mono):.4f}")
 
 
 def test_4way_intersection_scenarios():

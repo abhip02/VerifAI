@@ -54,26 +54,20 @@ import pandas as pd
 import pytest
 
 from verifai.monitor import automaton_specification
-from verifai.compositional_analysis import (
-    ScenarioBase,
-    CompositionalAnalysisEngine,
-    relabel_traces,
-)
+from verifai.compositional_analysis import ScenarioBase, CompositionalAnalysisEngine, relabel_traces
 
-HIGH_SPEED_MS = (
-    7.0  # m/s  (~25 km/h) — "fast" (low bar so re-acceleration after stop is likely)
-)
-LOW_SPEED_MS = 3.5  # m/s  (~13 km/h) — "slow" (same threshold as tollgate / two_stops)
-N_EPISODES = 1000
-TRACE_DIR = os.path.join(os.path.dirname(__file__), "storage", "vshape_speed")
+HIGH_SPEED_MS = 7.0    # m/s  (~25 km/h) — "fast" (low bar so re-acceleration after stop is likely)
+LOW_SPEED_MS  = 3.5    # m/s  (~13 km/h) — "slow" (same threshold as tollgate / two_stops)
+N_EPISODES    = 1000
+TRACE_DIR     = os.path.join(os.path.dirname(__file__), "storage", "vshape_speed")
 
-PRIMITIVES = {"S": 0, "X": 1, "C": 2, "O": 8}
-MONOLITHICS = {"SX": 3, "SXS": 4, "SOC": 10, "CSXS": 11, "CXSXC": 12}
+PRIMITIVES   = {"S": 0, "X": 1, "C": 2, "O": 8}
+MONOLITHICS  = {"SX": 3, "SXS": 4, "SOC": 10, "CSXS": 11, "CXSXC": 12}
 COMBINATIONS = [
-    ("SX", ["S", "X"]),
-    ("SXS", ["S", "X", "S"]),
-    ("SOC", ["S", "O", "C"]),
-    ("CSXS", ["C", "S", "X", "S"]),
+    ("SX",    ["S", "X"]),
+    ("SXS",   ["S", "X", "S"]),
+    ("SOC",   ["S", "O", "C"]),
+    ("CSXS",  ["C", "S", "X", "S"]),
     ("CXSXC", ["C", "X", "S", "X", "C"]),
 ]
 
@@ -88,7 +82,6 @@ def _sym(row):
 
 def make_cosafety_spec():
     """Co-safety: 'eventually fast → slow → fast (V-shape)' — absorbing-accept."""
-
     def transition(state, sym):
         if state == "achieved":
             return "achieved"
@@ -110,7 +103,6 @@ def make_cosafety_spec():
 
 def make_safety_spec():
     """Safety complement: 'never fast → slow → fast' — absorbing-reject."""
-
     def transition(state, sym):
         if state == "violated":
             return "violated"
@@ -132,15 +124,13 @@ def make_safety_spec():
 
 def generate(scenario, seed):
     from utils import generate_traces
-
     csv = os.path.join(TRACE_DIR, scenario, "traces.csv")
     if not os.path.exists(csv):
         # No extra_obstacles: vehicles follow natural speed profiles so S endings
         # and X/C starts share the same speed regime (11-25 m/s), giving the KDE
         # good overlap for importance sampling.
-        generate_traces(
-            seed=seed, save_dir=TRACE_DIR, expert=True, n=N_EPISODES, scenario=scenario
-        )
+        generate_traces(seed=seed, save_dir=TRACE_DIR, expert=True,
+                        n=N_EPISODES, scenario=scenario)
     return csv
 
 
@@ -148,7 +138,7 @@ def generate(scenario, seed):
 def setup():
     os.makedirs(TRACE_DIR, exist_ok=True)
     cosafety_spec = make_cosafety_spec()
-    safety_spec = make_safety_spec()
+    safety_spec   = make_safety_spec()
     paths = {}
 
     for name, seed in PRIMITIVES.items():
@@ -160,13 +150,7 @@ def setup():
         print(f"\n  === {spec_label} spec ===")
         for name in list(PRIMITIVES) + list(MONOLITHICS):
             relabel_traces(paths[name], spec)
-            rho = (
-                pd.read_csv(paths[name])
-                .groupby("trace_id")["label"]
-                .last()
-                .astype(float)
-                .mean()
-            )
+            rho = pd.read_csv(paths[name]).groupby("trace_id")["label"].last().astype(float).mean()
             kind = "primitive" if name in PRIMITIVES else "monolithic"
             print(f"    [{kind}] {name}: rho={rho:.4f}")
 
@@ -177,7 +161,6 @@ def setup():
 # Safety-complement tests — correct for check_with_dfa, should pass
 # ---------------------------------------------------------------------------
 
-
 @pytest.mark.parametrize("mono_name,comp_path", COMBINATIONS)
 def test_safety_complement_vs_monolithic(setup, mono_name, comp_path):
     """'Never fast→slow→fast' — safety spec, compositional should match monolithic."""
@@ -185,27 +168,22 @@ def test_safety_complement_vs_monolithic(setup, mono_name, comp_path):
 
     relabel_traces(paths[mono_name], safety_spec)
     mono_base = ScenarioBase({mono_name: paths[mono_name]})
-    rho_mono = mono_base.get_success_prob(mono_name)
-    eps_mono = mono_base.get_success_prob_uncertainty(mono_name)
+    rho_mono  = mono_base.get_success_prob(mono_name)
+    eps_mono  = mono_base.get_success_prob_uncertainty(mono_name)
 
     prim_paths = {p: paths[p] for p in set(comp_path)}
     for p in prim_paths:
         relabel_traces(prim_paths[p], safety_spec)
     engine = CompositionalAnalysisEngine(ScenarioBase(prim_paths))
     rho_comp, eps_comp = engine.check_with_dfa(
-        comp_path,
-        safety_spec,
-        features=["speed"],
-        center_feat_idx=[],
+        comp_path, safety_spec, features=["speed"], center_feat_idx=[],
     )
 
     label = "→".join(comp_path)
     print(f"\n  [safety {label}]")
     print(f"    Monolithic    rho({mono_name})  = {rho_mono:.4f} +/- {eps_mono:.4f}")
     print(f"    Compositional rho({label}) = {rho_comp:.4f} +/- {eps_comp:.4f}")
-    print(
-        f"    => co-safety (1 - rho): mono = {1 - rho_mono:.4f},  comp = {1 - rho_comp:.4f}"
-    )
+    print(f"    => co-safety (1 - rho): mono = {1 - rho_mono:.4f},  comp = {1 - rho_comp:.4f}")
 
     diff = abs(rho_comp - rho_mono)
     tolerance = 2.0 * (eps_mono + eps_comp) + 0.15
@@ -218,7 +196,6 @@ def test_safety_complement_vs_monolithic(setup, mono_name, comp_path):
 # ---------------------------------------------------------------------------
 # Co-safety tests — xfail: absorbing-accept collapses compositional rho
 # ---------------------------------------------------------------------------
-
 
 @pytest.mark.xfail(
     reason=(
@@ -236,27 +213,22 @@ def test_cosafety_vs_monolithic(setup, mono_name, comp_path):
 
     relabel_traces(paths[mono_name], cosafety_spec)
     mono_base = ScenarioBase({mono_name: paths[mono_name]})
-    rho_mono = mono_base.get_success_prob(mono_name)
-    eps_mono = mono_base.get_success_prob_uncertainty(mono_name)
+    rho_mono  = mono_base.get_success_prob(mono_name)
+    eps_mono  = mono_base.get_success_prob_uncertainty(mono_name)
 
     prim_paths = {p: paths[p] for p in set(comp_path)}
     for p in prim_paths:
         relabel_traces(prim_paths[p], cosafety_spec)
     engine = CompositionalAnalysisEngine(ScenarioBase(prim_paths))
     rho_comp, eps_comp = engine.check_with_dfa(
-        comp_path,
-        cosafety_spec,
-        features=["speed"],
-        center_feat_idx=[],
+        comp_path, cosafety_spec, features=["speed"], center_feat_idx=[],
     )
 
     label = "→".join(comp_path)
     print(f"\n  [co-safety {label}]")
     print(f"    Monolithic    rho({mono_name})  = {rho_mono:.4f} +/- {eps_mono:.4f}")
     print(f"    Compositional rho({label}) = {rho_comp:.4f} +/- {eps_comp:.4f}")
-    print(
-        f"    (collapse: rho_comp should equal rho(first primitive) if bug is present)"
-    )
+    print(f"    (collapse: rho_comp should equal rho(first primitive) if bug is present)")
 
     diff = abs(rho_comp - rho_mono)
     tolerance = 2.0 * (eps_mono + eps_comp) + 0.15

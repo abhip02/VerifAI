@@ -21,6 +21,7 @@ param carla_map = localPath('../../../../../tests/scenic/scenic_tests/cases_real
 param timestep = 0.1
 param use2DMap = True
 param render = 0
+param real_time = 0
 
 model scenic.simulators.metadrive.model
 
@@ -64,28 +65,28 @@ straight_full = [straight_maneuver.startLane,
 behavior EgoBehavior(trajectory, speed):
     do FollowTrajectoryBehavior(trajectory=trajectory, target_speed=speed)
     while True:
-        wait
+        take SetBrakeAction(1.0)
 
 
-# Prewarm: short random throttle burst before the main trajectory so
-# TurnX primitives start with varied non-zero speed (needed for KDE bridge).
-behavior EgoBehaviorWithPrewarm(trajectory):
-    prewarm_steps    = Uniform(0, 5, 10, 15, 20, 25)
-    prewarm_throttle = Range(0.4, 0.8)
-    for i in range(prewarm_steps):
-        take SetThrottleAction(prewarm_throttle), SetBrakeAction(0), SetSteerAction(0)
+# Gentle prewarm for TurnX primitives: accelerate to a speed drawn from the
+# same Range(2, 8) as the approach target_speed, then follow the turn.
+# This matches the initial speed distribution the car has when entering a turn
+# in the monolithic scenario (where it arrives from the preceding approach).
+behavior EgoTurnBehavior(trajectory):
+    prewarm_speed = Range(2, 5)
+    while self.speed < prewarm_speed:
+        take SetThrottleAction(0.3), SetBrakeAction(0), SetSteerAction(0)
     do FollowTrajectoryBehavior(trajectory=trajectory, target_speed=Range(2, 8))
     while True:
-        wait
+        take SetBrakeAction(1.0)
 
 
 # --- 4 leaf scenarios ---
 
 scenario ApproachScenario():
     setup:
-        speed = Range(2, 8)
         ego = new Car following roadDirection from uberSpawnPoint for DISTANCE_TO_INTERSECTION,
-                with behavior EgoBehavior(approach_only, speed)
+                with behavior EgoBehavior(approach_only, Range(2, 8))
     compose:
         while True:
             wait
@@ -94,7 +95,7 @@ scenario ApproachScenario():
 scenario TurnLeftScenario():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for SUB_TURN_DIST,
-                with behavior EgoBehaviorWithPrewarm(left_full)
+                with behavior EgoTurnBehavior(left_full)
     compose:
         while True:
             wait
@@ -103,7 +104,7 @@ scenario TurnLeftScenario():
 scenario TurnRightScenario():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for SUB_TURN_DIST,
-                with behavior EgoBehaviorWithPrewarm(right_full)
+                with behavior EgoTurnBehavior(right_full)
     compose:
         while True:
             wait
@@ -112,7 +113,7 @@ scenario TurnRightScenario():
 scenario GoStraightScenario():
     setup:
         ego = new Car following roadDirection from uberSpawnPoint for SUB_TURN_DIST,
-                with behavior EgoBehaviorWithPrewarm(straight_full)
+                with behavior EgoTurnBehavior(straight_full)
     compose:
         while True:
             wait
@@ -136,51 +137,65 @@ scenario Main():
         do choose { TurnLeftScenario(): 1, TurnRightScenario(): 1, GoStraightScenario(): 1 }
 
 
-# --- Monolithic5: 5 chained traversals in one simulation ---
-# sa1..sa5: independent approach speeds; st1..st5: independent turn speeds.
-# After each turn the ego is on the exit lane; FollowTrajectoryBehavior for
-# the next approach navigates back toward startLane (position-approximate, OK).
+# --- Monolithic5: 5 chained traversals in one continuous simulation ---
+#
+# Each traversal = full closed loop: startLane → intersection → turn → exit →
+# return path back to start of startLane.  BFS over Town07 road network found
+# exact lane sequences for each turn type (left/right/straight).
+#
+# Return path lane IDs (verified by BFS with connecting lanes):
+#   after left  (road0_lane0 exit)  : 7 lanes, ~215m
+#   after right (road55_lane0 exit) : 7 lanes, ~293m
+#   after straight (road44_lane1 exit): 13 lanes, ~381m
+#
+# After each traversal the ego arrives at end of road562_lane0 / road544_lane0,
+# which is exactly the start of startLane (road45_lane1).
 
-behavior Monolithic5Behavior(
-        turn1, turn2, turn3, turn4, turn5,
-        sa1, sa2, sa3, sa4, sa5,
-        st1, st2, st3, st4, st5):
-    do FollowTrajectoryBehavior(trajectory=approach_only, target_speed=sa1)
-    do FollowTrajectoryBehavior(trajectory=turn1, target_speed=st1)
-    do FollowTrajectoryBehavior(trajectory=approach_only, target_speed=sa2)
-    do FollowTrajectoryBehavior(trajectory=turn2, target_speed=st2)
-    do FollowTrajectoryBehavior(trajectory=approach_only, target_speed=sa3)
-    do FollowTrajectoryBehavior(trajectory=turn3, target_speed=st3)
-    do FollowTrajectoryBehavior(trajectory=approach_only, target_speed=sa4)
-    do FollowTrajectoryBehavior(trajectory=turn4, target_speed=st4)
-    do FollowTrajectoryBehavior(trajectory=approach_only, target_speed=sa5)
-    do FollowTrajectoryBehavior(trajectory=turn5, target_speed=st5)
+behavior Monolithic5Behavior(t1, t2, t3, t4, t5, s1, s2, s3, s4, s5):
+    do FollowTrajectoryBehavior(trajectory=t1, target_speed=s1)
+    do FollowTrajectoryBehavior(trajectory=t2, target_speed=s2)
+    do FollowTrajectoryBehavior(trajectory=t3, target_speed=s3)
+    do FollowTrajectoryBehavior(trajectory=t4, target_speed=s4)
+    do FollowTrajectoryBehavior(trajectory=t5, target_speed=s5)
     while True:
         wait
 
 
 scenario Monolithic5():
     setup:
-        turn1 = Uniform(left_full, right_full, straight_full)
-        turn2 = Uniform(left_full, right_full, straight_full)
-        turn3 = Uniform(left_full, right_full, straight_full)
-        turn4 = Uniform(left_full, right_full, straight_full)
-        turn5 = Uniform(left_full, right_full, straight_full)
-        sa1 = Range(2, 8)
-        sa2 = Range(2, 8)
-        sa3 = Range(2, 8)
-        sa4 = Range(2, 8)
-        sa5 = Range(2, 8)
-        st1 = Range(2, 8)
-        st2 = Range(2, 8)
-        st3 = Range(2, 8)
-        st4 = Range(2, 8)
-        st5 = Range(2, 8)
+        lane_lut = {l.id: l for l in network.lanes}
+
+        ret_left = [lane_lut[i] for i in [
+            'road128_lane0', 'road1_lane0', 'road153_lane0',
+            'road60_lane0', 'road464_lane0', 'road61_lane0', 'road562_lane0',
+        ]]
+        ret_right = [lane_lut[i] for i in [
+            'road280_lane0', 'road56_lane0', 'road38_lane1',
+            'road23_lane0', 'road336_lane0', 'road62_lane1', 'road544_lane0',
+        ]]
+        ret_straight = [lane_lut[i] for i in [
+            'road622_lane0', 'road43_lane1', 'road917_lane0', 'road47_lane1',
+            'road218_lane0', 'road37_lane0', 'road145_lane0', 'road1_lane0',
+            'road153_lane0', 'road60_lane0', 'road464_lane0', 'road61_lane0',
+            'road562_lane0',
+        ]]
+
+        trav_left     = left_full     + ret_left
+        trav_right    = right_full    + ret_right
+        trav_straight = straight_full + ret_straight
+
+        t1 = Uniform(trav_left, trav_right, trav_straight)
+        t2 = Uniform(trav_left, trav_right, trav_straight)
+        t3 = Uniform(trav_left, trav_right, trav_straight)
+        t4 = Uniform(trav_left, trav_right, trav_straight)
+        t5 = Uniform(trav_left, trav_right, trav_straight)
+        s1 = Range(2, 8)
+        s2 = Range(2, 8)
+        s3 = Range(2, 8)
+        s4 = Range(2, 8)
+        s5 = Range(2, 8)
         ego = new Car following roadDirection from uberSpawnPoint for DISTANCE_TO_INTERSECTION,
-                with behavior Monolithic5Behavior(
-                    turn1, turn2, turn3, turn4, turn5,
-                    sa1, sa2, sa3, sa4, sa5,
-                    st1, st2, st3, st4, st5)
+                with behavior Monolithic5Behavior(t1, t2, t3, t4, t5, s1, s2, s3, s4, s5)
     compose:
         while True:
             wait
