@@ -99,7 +99,7 @@ strips the PID ramp before labelling.
    Supervisor controller script (`/Applications/Webots.app/.../webots`
    needs to be running, with a Supervisor robot whose Python controller
    does `WebotsSimulator(supervisor).simulate(scene)`). The
-   `budget_sweep.sweep` worker calls `sc.getSimulator()` from a Python
+   `time_budget.sweep` worker calls `sc.getSimulator()` from a Python
    subprocess — incompatible. Webots integration is ~1-2 days of
    plumbing (wrapper `.wbt`, supervisor controller, IPC). MetaDrive-
    only sweep ships 21 cells (3 non-Markovian + 1 Markovian × 7
@@ -149,8 +149,8 @@ That's the sparse table to lift into the main paper figure.
 2. **Launch the unattended 21-cell metadrive sweep.** `max_budget=1800s`,
    `snapshot_every=30s`, ~14 CPU-hours. Each cell writes a 120-row
    `results.csv` + plots into `storage/budget_sweep_v3/<cell>/`.
-   Already wired in `budget_sweep/main_v3.py`; just `python -m
-   examples.compositional_analysis.budget_sweep.main_v3`.
+   Already wired in `time_budget/main_v3.py`; just `python -m
+   examples.compositional_analysis.time_budget.main_v3`.
 
 3. **Select 6-8 informative cells for the paper figure** post-sweep
    based on actual ρ̂ values (cross-check against the predicted table

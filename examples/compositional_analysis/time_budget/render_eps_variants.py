@@ -18,7 +18,7 @@ Handles:
         agreement flag against the monolithic bound alone)
 
 Usage:
-  python -m examples.compositional_analysis.budget_sweep.render_eps_variants \
+  python -m examples.compositional_analysis.time_budget.render_eps_variants \
       [DIR ...]
   With no arguments, auto-discovers the latest convergence_b900s_*,
   convergence_b3600s_*, and ablation_compute_matched under
@@ -48,7 +48,7 @@ def _is_cell_csv(path: Path) -> bool:
 
 
 def _render_cell(src_csv: Path, out_dir: Path) -> None:
-    from examples.compositional_analysis.budget_sweep.plots import (
+    from examples.compositional_analysis.time_budget.plots import (
         cell_title,
         legend_loc_for,
         plot_rho_vs_budget,

@@ -13,7 +13,7 @@ Reuses the existing trace stores (no simulation). Child output is logged
 to storage/budget_sweep_v4/full_run_logs/.
 
 Run:
-  python -m examples.compositional_analysis.budget_sweep.full_run
+  python -m examples.compositional_analysis.time_budget.full_run
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[3]
 LOG_DIR = REPO / "storage/budget_sweep_v4/full_run_logs"
 
-PKG = "examples.compositional_analysis.budget_sweep"
+PKG = "examples.compositional_analysis.time_budget"
 
 STAGE1 = [
     (

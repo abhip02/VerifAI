@@ -346,7 +346,7 @@ def spec_slow2_accel():
 
 
 # ===========================================================================
-# v3 trace-replay specs — used by budget_sweep/main_v3.py.
+# v3 trace-replay specs — used by time_budget/main.py.
 #
 # All four are co-safety properties expressed as their absorbing-reject
 # safety complement: run the safety spec through check_with_dfa* to get

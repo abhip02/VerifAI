@@ -3,8 +3,8 @@
 ## The one task
 
 **Implement the Scenic primitives + composites specified in
-`SCENIC_SCENARIOS.md`, then plug them into `budget_sweep/main.py` so that
-`python -m examples.compositional_analysis.budget_sweep` produces the
+`SCENIC_SCENARIOS.md`, then plug them into `time_budget/main.py` so that
+`python -m examples.compositional_analysis.time_budget` produces the
 4‑specs × 7‑composites = 28‑cell fixed‑time‑budget results for the paper.**
 
 **Do all of it in one session.** M1 → M2 → M3 end‑to‑end, no hand‑off
@@ -16,7 +16,7 @@ the next session re‑derive context you already had. Plan the session
 length accordingly — expect ~3–5 hours of continuous work plus the
 final smoke run.
 
-Don't expand scope. Don't refactor `budget_sweep` itself. Don't touch
+Don't expand scope. Don't refactor `time_budget` itself. Don't touch
 wander code — leave it as the v2 record and add v3 alongside.
 
 Read `SCENIC_SCENARIOS.md` first. It is the spec; this file is the
@@ -34,7 +34,7 @@ playbook for executing it.
 - [ ] `scenic_scenarios/specs.py` exposes `spec_tollgate`,
       `spec_two_stops`, `spec_fast_twice`, `spec_slow2_accel`
       (lifted verbatim from `dfa_tests/test_check_with_dfa_*.py`)
-- [ ] `budget_sweep/main.py` (or a new `main_v3.py`) defines the
+- [ ] `time_budget/main.py` (or a new `main_v3.py`) defines the
       `EXPERIMENTS` block from §6 of `SCENIC_SCENARIOS.md`; Webots row
       gated by `shutil.which('webots')`
 - [ ] One end‑to‑end smoke run of a single short‑budget cell
@@ -127,9 +127,9 @@ short prewarm. Do not fall back to open‑loop throttle.
    `|ρ̂_comp − ρ̂_mono| < 0.2` on a 50‑trace sample. Cheap sanity check;
    not the paper result.
 
-### M3: wire into budget_sweep
+### M3: wire into time_budget
 9. Paste the `COMPOSITES` / `ASSIGNMENTS` / `EXPERIMENTS` block from §6
-   of the README into a new `budget_sweep/main_v3.py` (don't edit
+   of the README into a new `time_budget/main_v3.py` (don't edit
    `main.py` — keep wander as the v2 record).
 10. Add `if not shutil.which('webots'): continue` around the Webots
     rows so MetaDrive‑only runs work.
@@ -184,8 +184,8 @@ Skills to **avoid** for this task: `/ship`, `/qa`, `/land-and-deploy`,
 | Spawn‑lane discovery pattern (Town07) | `dfa_tests/e2e_4way_example/4_way_intersection_scenic/wander_scenarios.scenic:30–47` |
 | Scenario‑level `do choose` pattern | `dfa_tests/e2e_4way_example/4_way_intersection_scenic/composed_scenarios.scenic:140–148` |
 | Existing `make_spec()` bodies to lift | `dfa_tests/test_check_with_dfa_{tollgate,two_stops,cosafety_fast_twice,cosafety_slow2_accel}.py` |
-| `SweepConfig` schema | `budget_sweep/config.py` |
-| How the Scenic worker is invoked | `budget_sweep/sweep.py:163–177` + `verifai/generate_graph_traces.py` (`_worker_generate_scenario`) |
+| `SweepConfig` schema | `time_budget/config.py` |
+| How the Scenic worker is invoked | `time_budget/sweep.py:163–177` + `verifai/generate_graph_traces.py` (`_worker_generate_scenario`) |
 | How `analyze_scenic_composition` parses the graph | `verifai/scenic_composition_analysis.py` |
 | What the parser expects for `choose`/`shuffle` | `verifai/scenic_parser.py:77–118` |
 | Upstream Scenic source for `FollowLaneBehavior` | `/Users/aryaraeesi/Documents/UC Berkeley/eecs219c/project/Scenic/src/scenic/domains/driving/behaviors.scenic` |

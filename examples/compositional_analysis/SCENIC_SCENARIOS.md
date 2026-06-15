@@ -138,7 +138,7 @@ examples/compositional_analysis/scenic_scenarios/
 The `metadrive/` and `webots/` subtrees share **scenario names and primitive
 APIs** but use different driving models and spawn‑lane discovery code (Town07
 has 4‑way intersections; `simple.wbt` is a straight road). Sharing names
-keeps the `budget_sweep` `EXPERIMENTS` table uniform.
+keeps the `time_budget` `EXPERIMENTS` table uniform.
 
 Each composite file imports its sibling `primitives.scenic` and exposes
 `scenario Main()` plus `scenario Mono<Name>()`. The `Mono*` scenario runs
@@ -353,15 +353,15 @@ These are the exact DFAs from the four tests under
 The spec factory functions already live inside those test files; lift the
 four `make_spec()` bodies into
 `examples/compositional_analysis/scenic_scenarios/specs.py` so both Abhi's
-fixed‑trace harness and Arya's `budget_sweep` configs import the same source
+fixed‑trace harness and Arya's `time_budget` configs import the same source
 of truth.
 
 ---
 
-## 6. Wiring into `budget_sweep`
+## 6. Wiring into `time_budget`
 
 For each (spec × composite) cell we need one `SweepConfig` entry in
-`budget_sweep/main.py`. Reuse the shared `_SCENARIO_KW` pattern already in
+`time_budget/main.py`. Reuse the shared `_SCENARIO_KW` pattern already in
 that file:
 
 ```python
@@ -460,9 +460,9 @@ Three milestones, each independently shippable.
 
 ### M3 — Budget sweep (½ day plus compute)
 
-1. Add the `EXPERIMENTS` block to `budget_sweep/main.py` (or fork
+1. Add the `EXPERIMENTS` block to `time_budget/main.py` (or fork
    `main_v3.py` to keep wander as the v2 record).
-2. Run `python -m examples.compositional_analysis.budget_sweep` —
+2. Run `python -m examples.compositional_analysis.time_budget` —
    28 × `max_budget=1800s` ≈ 14 CPU‑hours for the 21 MetaDrive cells,
    plus 7 Webots cells which run slower (Webots is heavier than MetaDrive
    headless — budget ≈ 6–8 CPU‑h for the Webots row alone). Parallelise
@@ -508,7 +508,7 @@ Three milestones, each independently shippable.
 
 - [ ] M1 primitives committed and stability test green
 - [ ] M2 composites + `specs.py` committed
-- [ ] M3 `EXPERIMENTS` block committed in `budget_sweep/main.py`
+- [ ] M3 `EXPERIMENTS` block committed in `time_budget/main.py`
 - [ ] One full sweep on a 4‑core machine (≈ 14 h) → `storage/budget_sweep_v3`
 - [ ] `plots.py` rendered for all 28 cells
 - [ ] Best 1–2 cells per spec selected for §"Fixed Time Budget" figure

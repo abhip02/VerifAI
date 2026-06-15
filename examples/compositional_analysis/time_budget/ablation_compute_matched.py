@@ -23,7 +23,7 @@ Outputs (under storage/budget_sweep_v4/ablation_compute_matched/):
                         main-body cells
 
 Purely post-hoc: no trace generation. Run:
-  python -m examples.compositional_analysis.budget_sweep.ablation_compute_matched
+  python -m examples.compositional_analysis.time_budget.ablation_compute_matched
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ from verifai.compositional_analysis import (
     relabel_traces,
 )
 
-from examples.compositional_analysis.budget_sweep.main import (
+from examples.compositional_analysis.time_budget.main import (
     MD_COMBOS,
     SCENIC_PRIM_DIRS_DEFAULT,
     SCENIC_PRIM_DIRS_STEER,
@@ -268,7 +268,7 @@ def main():
     print(f"\nwrote {table}")
 
     # Convergence curves for the four main-body cells, matched caps.
-    from examples.compositional_analysis.budget_sweep.plots import (
+    from examples.compositional_analysis.time_budget.plots import (
         cell_title,
         legend_loc_for,
         plot_rho_vs_budget,

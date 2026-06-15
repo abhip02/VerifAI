@@ -5,7 +5,7 @@ wall-clock budget) from our paper:
     (Pomalapally & Raeesi, RV26 submission)
 
 The trace-replay grid (4 specs × 7 scenarios = 28 cells) is driven from
-:mod:`budget_sweep.main`; :mod:`budget_sweep.full_run` orchestrates the
+:mod:`time_budget.main`; :mod:`time_budget.full_run` orchestrates the
 full re-analysis (grid → compute-matched ablation → eps variants).
 
 Module layout:
@@ -18,7 +18,7 @@ Module layout:
 
 Run the grid with::
 
-    python -m examples.compositional_analysis.budget_sweep.main
+    python -m examples.compositional_analysis.time_budget.main
 """
 
 from .config import Record

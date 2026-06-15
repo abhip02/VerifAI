@@ -130,3 +130,5 @@ uv.lock
 
 # Weights & Biases local run logs
 wandb/
+
+/random
